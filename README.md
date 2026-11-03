@@ -30,6 +30,8 @@ Since January 2025 every business in Germany has to be able to **receive** e-inv
 
 **Limits, honestly:** this is a plausibility check, not a full Schematron validation. Scanned PDFs without a text layer need OCR in front. The readable PDF is a view; the XML stays the legal original — keep it archived (GoBD).
 
+**DATEV Upload Mail, where forwarding usually breaks:** it takes PDF and TIF only, up to 20 MB and 10 documents per mail, and only from a sender address you have confirmed in DATEV. A forwarding rule in your mail client often keeps the original sender and gets rejected. That is why the workflow sends each invoice as its own mail from the *sender* in **Settings** — put your confirmed DATEV address there. If you switch to the Gmail or Outlook node, send from that same address. (Thanks to Anton Brinckmann for the hint in the [n8n community](https://community.n8n.io/t/reading-xrechnung-and-zugferd-invoices-in-n8n-without-any-external-api-open-workflow/326217).)
+
 **Set up** (about 10 minutes)
 
 1. Import `incoming/process-incoming-e-invoices.json` into n8n (2.x; Data Tables required).
@@ -75,7 +77,7 @@ Seit Januar 2025 muss jedes Unternehmen in Deutschland E-Rechnungen empfangen k�
 
 Der Workflow holt die Rechnungen aus dem Postfach oder über ein Upload-Formular, liest XRechnung, ZUGFeRD und Factur-X direkt in n8n aus – ohne externe API, die Daten bleiben auf der eigenen Instanz – und prüft, ob die Summen, die Umsatzsteuer je Satz, die IBAN und die Pflichtangaben zusammenpassen. Doppelt eingegangene Rechnungen fallen auf, bevor jemand zweimal zahlt.
 
-An die Buchhaltung geht nur, was wirklich hingeschaut werden muss, und zwar mit einer lesbaren PDF-Ansicht jeder XRechnung. Saubere Rechnungen lassen sich automatisch an DATEV Upload Mail oder Lexware Office weiterleiten (DATEV nimmt dort kein XML an, deshalb die PDF-Ansicht). Einmal im Monat gibt es eine CSV für die Steuerberatung.
+An die Buchhaltung geht nur, was wirklich hingeschaut werden muss, und zwar mit einer lesbaren PDF-Ansicht jeder XRechnung. Saubere Rechnungen lassen sich automatisch an DATEV Upload Mail oder Lexware Office weiterleiten (DATEV nimmt dort kein XML an, deshalb die PDF-Ansicht). Jede Rechnung geht als eigene Mail vom Absender aus den Settings raus – das muss die in DATEV bestätigte Adresse sein, sonst lehnt Upload Mail ab. Einmal im Monat gibt es eine CSV für die Steuerberatung.
 
 PDFs ohne E-Rechnungsdaten liest auf Wunsch ein lokales Sprachmodell über Ollama – gekennzeichnet zur Prüfung, nie stillschweigend übernommen.
 
