@@ -7,7 +7,7 @@ Open n8n workflows for European e-invoices (EN 16931). No external API, no OCR s
 | Workflow | Status |
 |---|---|
 | [Process incoming e-invoices](incoming/) — read, check, deduplicate, forward to bookkeeping | available |
-| Create outgoing XRechnung | in progress |
+| [Create and send XRechnung](outgoing/) — from a form or JSON, validated with the official KoSIT validator | available |
 
 ## Process incoming e-invoices
 
@@ -40,6 +40,24 @@ Since January 2025 every business in Germany has to be able to **receive** e-inv
 
 The logic of the Code nodes is also in `incoming/js/` as plain files, if you want to read or test it outside n8n.
 
+## Create and send XRechnung
+
+From 2027 (turnover above €800k) and 2028 (everyone else) German businesses must **send** B2B invoices as e-invoices; public authorities already require XRechnung today.
+
+**What the workflow does**
+
+1. Takes the invoice from an **n8n form** — lines as plain text, `Description; Quantity; Unit; Price; VAT %`, German number formats welcome — or as **JSON** from your CRM or shop via webhook.
+2. Continues a **gapless invoice number** sequence (`RE-2026-0001`, …) kept in an n8n Data Table.
+3. Builds an **XRechnung 3.0** (UN/CEFACT CII) with EN 16931 rounding and all German BR-DE fields: seller contact, electronic addresses, buyer reference / Leitweg-ID, SEPA payment, due date, delivery date, VAT exemption reasons — standard rates, small business under § 19 UStG, reverse charge, intra-EU supply.
+4. **Reads its own XML back** with the incoming parser and re-checks every total; renders a readable PDF.
+5. Emails the customer (XML + PDF) and optionally your bookkeeping inbox. Incomplete input never reaches the customer — you get an email listing what is missing.
+
+**Validated** with the official [KoSIT validator](https://github.com/itplr-kosit/validator) 1.6.3 and the XRechnung 3.0.2 configuration (2026-08-31): all generated test invoices accepted without a single rule violation — standard 19 % / 7 %, public authority with Leitweg-ID, § 19 small business (with tax number only and with register number), reverse charge to Austria, awkward rounding. The XML files are in [`outgoing/examples/`](outgoing/examples/), next to the PDF view of each.
+
+**Set up:** import `outgoing/create-xrechnung.json`, run *Run once: create table*, fill in your company data in **Settings**, add SMTP (or Gmail / Outlook) credentials, send yourself a test invoice through the form.
+
+**Limits:** XRechnung (pure XML, CII syntax) only — no ZUGFeRD hybrid PDF, which would need PDF/A-3 with embedded fonts. Credit notes and allowances / charges on document level are not covered yet. Submit invoices one after another so the numbering stays gapless.
+
 ---
 
 ## Deutsch: Eingangsrechnungen mit n8n verarbeiten
@@ -53,6 +71,16 @@ An die Buchhaltung geht nur, was wirklich hingeschaut werden muss, und zwar mit 
 PDFs ohne E-Rechnungsdaten liest auf Wunsch ein lokales Sprachmodell über Ollama – gekennzeichnet zur Prüfung, nie stillschweigend übernommen.
 
 Eine vollständige Schematron-Validierung ersetzt das nicht, und die XML-Datei bleibt das maßgebliche Original.
+
+## Deutsch: XRechnung erstellen und versenden
+
+Ab 2027 müssen Unternehmen mit mehr als 800.000 Euro Umsatz ihre B2B-Rechnungen als E-Rechnung verschicken, ab 2028 alle anderen auch. Behörden verlangen die XRechnung schon heute.
+
+Der zweite Workflow nimmt die Rechnung aus einem n8n-Formular entgegen – Positionen einfach als Text, „Beratung; 6; Std; 95; 19“, gern mit deutschen Zahlen wie 1.234,50 – oder als JSON aus CRM und Shop. Die Rechnungsnummer läuft lückenlos weiter, die XRechnung 3.0 entsteht direkt in n8n samt Leitweg-ID, Kontaktangaben, SEPA-Daten und Leistungsdatum. Kleinunternehmer nach § 19 UStG und Reverse Charge sind abgedeckt.
+
+Bevor etwas rausgeht, liest der Workflow seine eigene XML wieder ein und rechnet alles nach. Erst dann bekommt der Kunde XML und PDF. Fehlt eine Angabe, geht keine halbe Rechnung raus, sondern eine Nachricht an Sie, was noch fehlt.
+
+Geprüft mit dem offiziellen KoSIT-Validator (XRechnung 3.0.2): alle Testrechnungen angenommen, ohne einen einzigen Regelverstoß. ZUGFeRD-Hybrid-PDFs erzeugt der Workflow nicht – das wäre PDF/A-3 mit eingebetteten Schriften und ein eigenes Projekt.
 
 ---
 

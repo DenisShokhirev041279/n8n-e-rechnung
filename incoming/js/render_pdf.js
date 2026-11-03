@@ -5,6 +5,7 @@ const LABELS = {
   de: {
     380: 'Rechnung', 381: 'Gutschrift', 384: 'Rechnungskorrektur', 326: 'Teilrechnung', 389: 'Gutschrift (Selbstfakturierung)',
     from: 'Rechnungssteller', to: 'Rechnungsempfänger', number: 'Rechnungsnummer', date: 'Rechnungsdatum', due: 'Fällig am',
+    delivery: 'Leistungsdatum', contact: 'Kontakt',
     buyerRef: 'Käuferreferenz / Leitweg-ID', order: 'Bestellnummer', vatId: 'USt-IdNr.', taxNo: 'Steuernummer',
     pos: 'Pos.', item: 'Bezeichnung', qty: 'Menge', price: 'Einzelpreis', vat: 'USt.', net: 'Netto',
     lineTotal: 'Summe Positionen', allowances: 'Nachlässe', charges: 'Zuschläge', taxBasis: 'Nettobetrag',
@@ -16,6 +17,7 @@ const LABELS = {
   en: {
     380: 'Invoice', 381: 'Credit note', 384: 'Corrected invoice', 326: 'Partial invoice', 389: 'Self-billed credit note',
     from: 'Seller', to: 'Buyer', number: 'Invoice number', date: 'Invoice date', due: 'Due date',
+    delivery: 'Delivery date', contact: 'Contact',
     buyerRef: 'Buyer reference', order: 'Order number', vatId: 'VAT ID', taxNo: 'Tax number',
     pos: 'Pos.', item: 'Description', qty: 'Qty', price: 'Unit price', vat: 'VAT', net: 'Net',
     lineTotal: 'Sum of lines', allowances: 'Allowances', charges: 'Charges', taxBasis: 'Net total',
@@ -102,12 +104,14 @@ function renderInvoicePdf(inv, opts = {}) {
     for (const l of [p.street, [p.postcode, p.city].filter(Boolean).join(' '), p.country].filter(Boolean)) { text(l, x, yy); yy -= 11; }
     if (p.vatId) { text(`${L.vatId} ${p.vatId}`, x, yy); yy -= 11; }
     if (p.taxNumber) { text(`${L.taxNo} ${p.taxNumber}`, x, yy); yy -= 11; }
+    const c = [p.contactName, p.phone, p.email].filter(Boolean).join(' · ');
+    if (c && p === inv.seller) for (const l of wrap(`${L.contact}: ${c}`, 240, 8)) { text(l, x, yy, 8); yy -= 10; }
     return yy;
   };
   const yA = party(L.from, inv.seller, M), yB = party(L.to, inv.buyer, 310);
   y = Math.min(yA, yB) - 14;
 
-  const meta = [[L.number, inv.invoiceNumber], [L.date, inv.issueDate], [L.due, inv.dueDate],
+  const meta = [[L.number, inv.invoiceNumber], [L.date, inv.issueDate], [L.delivery, inv.deliveryDate], [L.due, inv.dueDate],
     [L.buyerRef, inv.buyerReference], [L.order, inv.orderReference]].filter(([, v]) => v);
   for (const [k, v] of meta) { text(k, M, y, 9, true); text(v, M + 150, y); y -= 12; }
   y -= 12;

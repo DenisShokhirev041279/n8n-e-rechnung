@@ -52,6 +52,9 @@ function normalizeCII(doc) {
     postcode: txt(p, 'PostalTradeAddress/PostcodeCode'),
     city: txt(p, 'PostalTradeAddress/CityName'),
     country: txt(p, 'PostalTradeAddress/CountryID'),
+    contactName: txt(p, 'DefinedTradeContact/PersonName'),
+    phone: txt(p, 'DefinedTradeContact/TelephoneUniversalCommunication/CompleteNumber'),
+    email: txt(p, 'DefinedTradeContact/EmailURIUniversalCommunication/URIID') || txt(p, 'URIUniversalCommunication/URIID'),
   };
   // TaxTotalAmount can appear twice (invoice currency + accounting currency)
   const currency = txt(set, 'InvoiceCurrencyCode') || (one(sum, 'GrandTotalAmount') || { attrs: {} }).attrs.currencyID || '';
@@ -64,6 +67,7 @@ function normalizeCII(doc) {
     typeCode: txt(hdr, 'TypeCode'),
     issueDate: cdate(txt(hdr, 'IssueDateTime/DateTimeString') || txt(hdr, 'IssueDateTime')),
     dueDate: cdate(txt(set, 'SpecifiedTradePaymentTerms/DueDateDateTime/DateTimeString')),
+    deliveryDate: cdate(txt(one(tx, 'ApplicableHeaderTradeDelivery|ApplicableSupplyChainTradeDelivery'), 'ActualDeliverySupplyChainEvent/OccurrenceDateTime/DateTimeString')),
     paymentTerms: txt(set, 'SpecifiedTradePaymentTerms/Description'),
     currency,
     buyerReference: txt(agr, 'BuyerReference'),
@@ -108,6 +112,9 @@ function normalizeUBL(doc) {
     postcode: txt(p, 'PostalAddress/PostalZone'),
     city: txt(p, 'PostalAddress/CityName'),
     country: txt(p, 'PostalAddress/Country/IdentificationCode'),
+    contactName: txt(p, 'Contact/Name'),
+    phone: txt(p, 'Contact/Telephone'),
+    email: txt(p, 'Contact/ElectronicMail') || txt(p, 'EndpointID'),
   };
   const currency = txt(doc, 'DocumentCurrencyCode');
   const taxTotals = all(doc, 'TaxTotal');
@@ -120,6 +127,7 @@ function normalizeUBL(doc) {
     typeCode: txt(doc, credit ? 'CreditNoteTypeCode' : 'InvoiceTypeCode'),
     issueDate: txt(doc, 'IssueDate'),
     dueDate: txt(doc, 'DueDate') || txt(doc, 'PaymentMeans/PaymentDueDate'),
+    deliveryDate: txt(doc, 'Delivery/ActualDeliveryDate'),
     paymentTerms: txt(doc, 'PaymentTerms/Note'),
     currency,
     buyerReference: txt(doc, 'BuyerReference'),
