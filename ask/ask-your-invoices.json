@@ -1,0 +1,291 @@
+{
+ "name": "Ask your invoices: chat with your e-invoice archive using a local AI model (numbers computed by code)",
+ "nodes": [
+  {
+   "parameters": {
+    "content": "## Ask your invoices — chat with your e-invoice archive, numbers computed by code\n\nCompanion to *Process incoming e-invoices (XRechnung, ZUGFeRD, Factur-X)*: it reads the **e_invoices** Data Table that workflow fills.\n\nAsk in plain German or English — *„Was haben wir im Oktober an Hetzner gezahlt?“*, *\"Which invoices are overdue?\"*, *„Welche Rechnungen müssen geprüft werden?“*, *\"Top suppliers this year\"*.\n\n### Why the numbers are right\nSmall local models are bad at arithmetic. So the model never adds anything up:\n1. **Understand question** turns the question into a filter (supplier, period, due dates, status, amounts) — relative dates like *last month* are resolved to exact dates.\n2. **Compute answer** filters the table and sums net, VAT and gross per currency in plain JavaScript.\n3. **Write answer** gets only those computed facts and writes one or two sentences.\n4. **Reply** adds the exact figures and the matching invoices as a table — plus the filter that was applied, so a misunderstood question is visible at once.\n\nRuns fully local with **Ollama** (e.g. Llama 3.1 8B or Qwen 3 8B); any other chat model works too.\n\n### Set up\n1. Import and run the incoming e-invoice workflow first (it creates and fills `e_invoices`).\n2. Point both *AI model* nodes to your Ollama server or another chat model.\n3. Open the chat (*Chat* node → Open chat) and ask.\n\nNote: the table knows due dates, not payments — *overdue* means the due date has passed.\n\nBuilt by Denis Shokhirev · DennisCraft AI Studio, Freiburg — gerdennisai.com",
+    "width": 520,
+    "height": 900,
+    "color": 6
+   },
+   "name": "Overview",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -720,
+    -300
+   ]
+  },
+  {
+   "parameters": {
+    "options": {
+     "responseMode": "lastNode"
+    }
+   },
+   "name": "Chat",
+   "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+   "typeVersion": 1.1,
+   "position": [
+    0,
+    0
+   ],
+   "webhookId": "ask-your-invoices"
+  },
+  {
+   "parameters": {
+    "text": "={{ $json.chatInput }}",
+    "attributes": {
+     "attributes": [
+      {
+       "name": "intent",
+       "type": "string",
+       "description": "One of: list, total, by_seller, overdue, count, problems. total = sums only; by_seller = grouped by supplier; overdue = due date already passed; problems = invoices marked for review",
+       "required": true
+      },
+      {
+       "name": "seller",
+       "type": "string",
+       "description": "Part of the supplier name if the question names one, otherwise empty",
+       "required": false
+      },
+      {
+       "name": "search",
+       "type": "string",
+       "description": "Other search word (invoice number, file name) if mentioned, otherwise empty",
+       "required": false
+      },
+      {
+       "name": "status",
+       "type": "string",
+       "description": "ok, check or empty",
+       "required": false
+      },
+      {
+       "name": "dateFrom",
+       "type": "string",
+       "description": "First invoice date to include, YYYY-MM-DD, or empty",
+       "required": false
+      },
+      {
+       "name": "dateTo",
+       "type": "string",
+       "description": "Last invoice date to include, YYYY-MM-DD, or empty",
+       "required": false
+      },
+      {
+       "name": "dueFrom",
+       "type": "string",
+       "description": "Earliest due date, YYYY-MM-DD, or empty",
+       "required": false
+      },
+      {
+       "name": "dueTo",
+       "type": "string",
+       "description": "Latest due date, YYYY-MM-DD, or empty",
+       "required": false
+      },
+      {
+       "name": "minAmount",
+       "type": "number",
+       "description": "Minimum gross amount, or empty",
+       "required": false
+      },
+      {
+       "name": "maxAmount",
+       "type": "number",
+       "description": "Maximum gross amount, or empty",
+       "required": false
+      },
+      {
+       "name": "language",
+       "type": "string",
+       "description": "de if the question is German, otherwise en",
+       "required": true
+      }
+     ]
+    },
+    "options": {
+     "systemPromptTemplate": "=You turn a question about received supplier invoices into a search filter. Today is {{ $now.toFormat('yyyy-MM-dd') }}. Resolve relative periods yourself: 'last month', 'im Oktober', 'dieses Quartal', 'next 7 days' become exact YYYY-MM-DD dates. 'What is due soon' means dueFrom = today and dueTo = today + 14 days. Leave a field empty when the question does not ask for it. Never invent supplier names."
+    }
+   },
+   "name": "Understand question",
+   "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+   "typeVersion": 1.2,
+   "position": [
+    240,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "model": "llama3.1:8b",
+    "options": {
+     "temperature": 0
+    }
+   },
+   "name": "AI model (understand)",
+   "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+   "typeVersion": 1,
+   "position": [
+    240,
+    220
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "row",
+    "operation": "get",
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "e_invoices"
+    },
+    "returnAll": true
+   },
+   "name": "Read invoices",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    560,
+    0
+   ],
+   "alwaysOutputData": true,
+   "executeOnce": true
+  },
+  {
+   "parameters": {
+    "jsCode": "// Answer questions about stored invoices. The language model only turns the question into a filter;\n// all matching and arithmetic happens here, so every number in the reply comes from the data.\n\nfunction answerQuery(rows, q, today) {\n  const norm = s => String(s ?? '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '');\n  const iso = s => (/^\\d{4}-\\d{2}-\\d{2}$/.test(String(s || '')) ? String(s) : '');\n  const f = {\n    intent: ['list', 'total', 'by_seller', 'overdue', 'count', 'problems'].includes(q.intent) ? q.intent : 'list',\n    seller: String(q.seller || '').trim(), search: String(q.search || '').trim(),\n    status: ['ok', 'check'].includes(q.status) ? q.status : '',\n    dateFrom: iso(q.dateFrom), dateTo: iso(q.dateTo), dueFrom: iso(q.dueFrom), dueTo: iso(q.dueTo),\n    minAmount: Number.isFinite(Number(q.minAmount)) && q.minAmount !== '' && q.minAmount !== null ? Number(q.minAmount) : null,\n    maxAmount: Number.isFinite(Number(q.maxAmount)) && q.maxAmount !== '' && q.maxAmount !== null ? Number(q.maxAmount) : null,\n  };\n  if (f.intent === 'overdue' && !f.dueTo) {\n    const d = new Date(today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); f.dueTo = d.toISOString().slice(0, 10);\n  }\n  if (f.intent === 'problems') f.status = 'check';\n\n  const hit = rows.filter(r => {\n    if (f.seller && !norm(r.sellerName).includes(norm(f.seller))) return false;\n    if (f.search && ![r.sellerName, r.invoiceNumber, r.fileName, r.buyerName, r.emailSubject].some(v => norm(v).includes(norm(f.search)))) return false;\n    if (f.status && r.status !== f.status) return false;\n    if (f.dateFrom && !(r.invoiceDate >= f.dateFrom)) return false;\n    if (f.dateTo && !(r.invoiceDate <= f.dateTo)) return false;\n    if ((f.dueFrom || f.dueTo) && !r.dueDate) return false;\n    if (f.dueFrom && !(r.dueDate >= f.dueFrom)) return false;\n    if (f.dueTo && !(r.dueDate <= f.dueTo)) return false;\n    if (f.minAmount !== null && !(Number(r.grossAmount) >= f.minAmount)) return false;\n    if (f.maxAmount !== null && !(Number(r.grossAmount) <= f.maxAmount)) return false;\n    return true;\n  }).sort((a, b) => String(b.invoiceDate).localeCompare(String(a.invoiceDate)));\n\n  const r2 = v => Math.round(v * 100) / 100;\n  const totals = {};\n  for (const r of hit) {\n    const c = r.currency || '?';\n    totals[c] = totals[c] || { net: 0, vat: 0, gross: 0, count: 0 };\n    totals[c].net = r2(totals[c].net + Number(r.netAmount || 0));\n    totals[c].vat = r2(totals[c].vat + Number(r.vatAmount || 0));\n    totals[c].gross = r2(totals[c].gross + Number(r.grossAmount || 0));\n    totals[c].count += 1;\n  }\n  const bySeller = Object.values(hit.reduce((m, r) => {\n    const k = (r.sellerName || '?') + '|' + (r.currency || '');\n    m[k] = m[k] || { seller: r.sellerName || '?', currency: r.currency || '', count: 0, gross: 0 };\n    m[k].count += 1; m[k].gross = r2(m[k].gross + Number(r.grossAmount || 0));\n    return m;\n  }, {})).sort((a, b) => b.gross - a.gross);\n\n  return { filter: f, count: hit.length, totals, bySeller: bySeller.slice(0, 10), rows: hit.slice(0, 15), more: Math.max(0, hit.length - 15) };\n}\n\nfunction formatResult(res, lang) {\n  const de = lang !== 'en';\n  const m = (v, c) => (v === null || v === undefined || v === '' ? '' :\n    Number(v).toLocaleString(de ? 'de-DE' : 'en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (c ? ' ' + c : ''));\n  const lines = [];\n  const f = res.filter, dd = v => v.split('-').reverse().join('.');\n  const parts = [f.seller && (de ? `Lieferant enthält „${f.seller}“` : `supplier contains \"${f.seller}\"`),\n    f.search && (de ? `Suche „${f.search}“` : `search \"${f.search}\"`),\n    f.status && `Status ${f.status}`,\n    (f.dateFrom || f.dateTo) && (de ? 'Rechnungsdatum ' : 'invoice date ') + `${f.dateFrom ? dd(f.dateFrom) : '…'}–${f.dateTo ? dd(f.dateTo) : '…'}`,\n    (f.dueFrom || f.dueTo) && (de ? 'fällig ' : 'due ') + `${f.dueFrom ? dd(f.dueFrom) : '…'}–${f.dueTo ? dd(f.dueTo) : '…'}`,\n    f.minAmount !== null && `≥ ${f.minAmount}`, f.maxAmount !== null && `≤ ${f.maxAmount}`].filter(Boolean);\n  const filterLine = '_Filter: ' + (parts.length ? parts.join(' · ') : (de ? 'alle Rechnungen' : 'all invoices')) + '_';\n  const tot = Object.entries(res.totals);\n  if (!res.count) return filterLine + '\\n\\n' + (de ? '_Keine passenden Rechnungen gefunden._' : '_No matching invoices found._');\n  lines.push(filterLine, '');\n  lines.push(tot.map(([c, t]) => (de ? `**${t.count} Rechnung(en)** · netto ${m(t.net, c)} · USt. ${m(t.vat, c)} · brutto **${m(t.gross, c)}**`\n    : `**${t.count} invoice(s)** · net ${m(t.net, c)} · VAT ${m(t.vat, c)} · gross **${m(t.gross, c)}**`)).join('\\n'));\n  if (res.filter.intent === 'by_seller' || res.bySeller.length > 1) {\n    lines.push('', de ? '| Lieferant | Anzahl | Brutto |' : '| Supplier | Count | Gross |', '|---|---:|---:|');\n    for (const s of res.bySeller) lines.push(`| ${s.seller} | ${s.count} | ${m(s.gross, s.currency)} |`);\n  }\n  if (res.filter.intent !== 'total' && res.filter.intent !== 'count') {\n    lines.push('', de ? '| Datum | Nr. | Lieferant | Brutto | Fällig | Status |' : '| Date | No. | Supplier | Gross | Due | Status |', '|---|---|---|---:|---|---|');\n    for (const r of res.rows) lines.push(`| ${r.invoiceDate || ''} | ${r.invoiceNumber || ''} | ${r.sellerName || ''} | ${m(r.grossAmount, r.currency)} | ${r.dueDate || ''} | ${r.status || ''} |`);\n    if (res.more) lines.push(de ? `_… und ${res.more} weitere._` : `_… and ${res.more} more._`);\n  }\n  return lines.join('\\n');\n}\n\n// Apply the filter from the AI step to all stored invoices; numbers come only from here.\nconst q = $('Understand question').first().json.output || {};\nconst rows = $input.all().map(i => i.json).filter(r => r.invoiceNumber || r.sellerName);\nconst res = answerQuery(rows, q, $now.toFormat('yyyy-MM-dd'));\nconst lang = q.language === 'en' ? 'en' : 'de';\nconst money = (v, c) => Number(v).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + c;\nconst totals = Object.fromEntries(Object.entries(res.totals).map(([c, t]) => [c, { invoices: t.count, net: money(t.net, c), vat: money(t.vat, c), gross: money(t.gross, c) }]));\nconst suppliers = res.bySeller.slice(0, 5).map(x => ({ supplier: x.seller, invoices: x.count, gross: money(x.gross, x.currency) }));\nreturn [{ json: {\n  question: $('Chat').first().json.chatInput,\n  lang,\n  facts: JSON.stringify({ filter: res.filter, invoicesFound: res.count, totalsByCurrency: totals, topSuppliers: suppliers }),\n  table: formatResult(res, lang),\n} }];"
+   },
+   "name": "Compute answer",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    800,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "promptType": "define",
+    "text": "=Question: {{ $json.question }}\n\nFacts computed from the invoice table (the only numbers you may use):\n{{ $json.facts }}\n\nAnswer in {{ $json.lang === 'de' ? 'German' : 'English' }} in one or two short sentences. Use only numbers that appear in the facts, exactly as written there, never calculate new ones. If no invoices were found, say so plainly. The table lists received invoices, not payments: say invoiced / in Rechnung gestellt, never paid / bezahlt. A table with the details will be shown below your answer, so do not repeat it.",
+    "batching": {}
+   },
+   "name": "Write answer",
+   "type": "@n8n/n8n-nodes-langchain.chainLlm",
+   "typeVersion": 1.9,
+   "position": [
+    1040,
+    0
+   ]
+  },
+  {
+   "parameters": {
+    "model": "llama3.1:8b",
+    "options": {
+     "temperature": 0
+    }
+   },
+   "name": "AI model (answer)",
+   "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+   "typeVersion": 1,
+   "position": [
+    1040,
+    220
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Short answer from the model + exact figures from the code.\nconst t = $('Compute answer').first().json.table;\nreturn [{ json: { output: `${String($json.text || '').trim()}\\n\\n${t}` } }];"
+   },
+   "name": "Reply",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1360,
+    0
+   ]
+  }
+ ],
+ "connections": {
+  "Chat": {
+   "main": [
+    [
+     {
+      "node": "Understand question",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Understand question": {
+   "main": [
+    [
+     {
+      "node": "Read invoices",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "AI model (understand)": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Understand question",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read invoices": {
+   "main": [
+    [
+     {
+      "node": "Compute answer",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Compute answer": {
+   "main": [
+    [
+     {
+      "node": "Write answer",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "AI model (answer)": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "Write answer",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Write answer": {
+   "main": [
+    [
+     {
+      "node": "Reply",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ },
+ "settings": {
+  "executionOrder": "v1"
+ }
+}

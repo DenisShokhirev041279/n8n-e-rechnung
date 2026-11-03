@@ -8,6 +8,7 @@ Open n8n workflows for European e-invoices (EN 16931). No external API, no OCR s
 |---|---|
 | [Process incoming e-invoices](incoming/) — read, check, deduplicate, forward to bookkeeping | available |
 | [Create and send XRechnung](outgoing/) — from a form or JSON, validated with the official KoSIT validator | available |
+| [Ask your invoices](ask/) — chat with the invoice archive in German or English, local AI model, numbers computed by code | available |
 
 ## Process incoming e-invoices
 
@@ -58,6 +59,14 @@ From 2027 (turnover above €800k) and 2028 (everyone else) German businesses mu
 
 **Limits:** XRechnung (pure XML, CII syntax) only — no ZUGFeRD hybrid PDF, which would need PDF/A-3 with embedded fonts. Credit notes and allowances / charges on document level are not covered yet. Submit invoices one after another so the numbering stays gapless.
 
+## Ask your invoices
+
+A chat on top of the `e_invoices` table: *„Was hat uns Hetzner im Oktober in Rechnung gestellt?“*, *"Which invoices are overdue?"*, *„Was ist in den nächsten 14 Tagen fällig?“*.
+
+Small local models are bad at arithmetic, so the model never adds anything up. It only turns the question into a filter (supplier, period, due dates, status, amount) and writes one or two sentences; the matching and all sums are done in JavaScript. Every reply shows the filter that was applied and the exact figures as a table, so a misunderstood question is visible immediately. Runs with Ollama (Llama 3.1 8B, Qwen 3 8B) or any chat model. Tested on n8n 2.43 with questions in German and English.
+
+Limit: the table knows invoices and due dates, not payments — *overdue* means the due date has passed.
+
 ---
 
 ## Deutsch: Eingangsrechnungen mit n8n verarbeiten
@@ -81,6 +90,10 @@ Der zweite Workflow nimmt die Rechnung aus einem n8n-Formular entgegen – Posit
 Bevor etwas rausgeht, liest der Workflow seine eigene XML wieder ein und rechnet alles nach. Erst dann bekommt der Kunde XML und PDF. Fehlt eine Angabe, geht keine halbe Rechnung raus, sondern eine Nachricht an Sie, was noch fehlt.
 
 Geprüft mit dem offiziellen KoSIT-Validator (XRechnung 3.0.2): alle Testrechnungen angenommen, ohne einen einzigen Regelverstoß. ZUGFeRD-Hybrid-PDFs erzeugt der Workflow nicht – das wäre PDF/A-3 mit eingebetteten Schriften und ein eigenes Projekt.
+
+## Deutsch: Fragen an die eigenen Rechnungen
+
+Der dritte Workflow ist ein Chat über das Rechnungsarchiv: „Was hat uns Hetzner im Oktober in Rechnung gestellt?“ oder „Welche Rechnungen müssen noch geprüft werden?“. Das Sprachmodell läuft lokal über Ollama und versteht nur die Frage – gerechnet wird im Code. Unter jeder Antwort stehen der angewendete Filter und die genauen Beträge, damit niemand einer erfundenen Zahl hinterherläuft.
 
 ---
 
