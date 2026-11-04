@@ -1207,7 +1207,8 @@
        "resumeAmount": "={{ $('Settings').first().json.approvalWaitHours || 48 }}",
        "resumeUnit": "hours"
       }
-     }
+     },
+     "appendAttribution": false
     }
    },
    "name": "Ask on WhatsApp",
@@ -1238,7 +1239,8 @@
        "resumeAmount": "={{ $('Settings').first().json.approvalWaitHours || 48 }}",
        "resumeUnit": "hours"
       }
-     }
+     },
+     "appendAttribution": false
     }
    },
    "name": "Ask on Telegram",
@@ -1271,7 +1273,8 @@
        "resumeAmount": "={{ $('Settings').first().json.approvalWaitHours || 48 }}",
        "resumeUnit": "hours"
       }
-     }
+     },
+     "appendAttribution": false
     }
    },
    "name": "Ask by email",
