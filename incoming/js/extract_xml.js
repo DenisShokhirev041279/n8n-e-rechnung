@@ -2,8 +2,20 @@
 // Pure JavaScript: no require(), no zlib, no external API. Runs in the n8n Code node sandbox.
 
 // --- Minimal inflate (RFC 1951), adapted from the public-domain "tinf" approach ---
+const INFLATE_MAX = 25 * 1024 * 1024; // ZIP bombs / huge streams: stop instead of running out of memory
+
 function inflateRaw(src) {
-  const out = [];
+  // Output in a growing byte array (a plain JS array would need ~8× the memory)
+  let out = new Uint8Array(Math.min(INFLATE_MAX, Math.max(65536, src.length * 4))), n = 0;
+  const room = need => {
+    if (n + need <= out.length) return;
+    if (n + need > INFLATE_MAX) throw new Error('inflate: output larger than 25 MB');
+    let cap = out.length;
+    while (cap < n + need) cap *= 2;
+    const next = new Uint8Array(Math.min(cap, INFLATE_MAX));
+    next.set(out.subarray(0, n));
+    out = next;
+  };
   let pos = 0, bitBuf = 0, bitCnt = 0;
   const bits = n => {
     while (bitCnt < n) {
@@ -69,22 +81,26 @@ function inflateRaw(src) {
       bitBuf = 0; bitCnt = 0;
       const len = src[pos] | (src[pos + 1] << 8);
       pos += 4;
-      for (let i = 0; i < len; i++) out.push(src[pos++]);
+      room(len);
+      out.set(src.subarray(pos, pos + len), n);
+      n += len; pos += len;
     } else if (type === 1 || type === 2) {
       const [lt, dt] = type === 1 ? fixed() : dynamic();
       for (;;) {
         const sym = decode(lt);
-        if (sym < 256) out.push(sym);
+        if (sym < 256) { room(1); out[n++] = sym; }
         else if (sym === 256) break;
         else {
           const li = sym - 257, len = LBASE[li] + bits(LEXT[li]);
           const di = decode(dt), dist = DBASE[di] + bits(DEXT[di]);
-          for (let i = 0; i < len; i++) out.push(out[out.length - dist]);
+          if (dist > n) throw new Error('inflate: bad distance');
+          room(len);
+          for (let i = 0; i < len; i++, n++) out[n] = out[n - dist];
         }
       }
     } else throw new Error('inflate: invalid block type');
   } while (!last);
-  return Buffer.from(out);
+  return Buffer.from(out.subarray(0, n));
 }
 
 // zlib stream (FlateDecode) = 2-byte header + raw deflate + adler32

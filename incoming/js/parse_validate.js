@@ -16,7 +16,11 @@ function parseXml(xml) {
     else if (m[6] !== undefined) top.text += ent(m[6]);
     else if (m[3]) {
       const name = m[3].replace(/^[\w.-]+:/, '');
-      if (m[2]) { stack.pop(); continue; }
+      if (m[2]) {
+        if (stack.length < 2 || top.name !== name) throw new Error(`malformed XML: </${name}> does not close <${top.name}>`);
+        stack.pop();
+        continue;
+      }
       const attrs = {};
       m[4].replace(/([\w.:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g, (_, k, a, b) => { attrs[k.replace(/^[\w.-]+:/, '')] = ent(a ?? b); });
       const node = { name, attrs, children: [], text: '' };
@@ -204,9 +208,14 @@ function checkInvoice(inv, today = new Date().toISOString().slice(0, 10)) {
     problems.push(`Gross ${money(t.grand)} ≠ net ${money(t.taxBasis)} + VAT ${money(t.tax)}`);
   if (t.grand !== null && t.due !== null && !near(t.grand - t.prepaid + t.rounding, t.due)) {
     if (t.prepaid) problems.push(`Amount due ${money(t.due)} ≠ gross ${money(t.grand)} − prepaid ${money(t.prepaid)}`);
-    else warnings.push(`Amount due ${money(t.due)} differs from gross ${money(t.grand)} without a stated prepayment`);
+    else problems.push(`Amount due ${money(t.due)} differs from gross ${money(t.grand)} without a stated prepayment — e.g. undeclared prepayment, third-party amounts or a correction; check before paying`);
   }
+  if (t.allowances < 0 || t.charges < 0 || t.prepaid < 0)
+    problems.push('Allowances, charges and prepaid amounts must not be negative');
+  if (Math.abs(t.rounding || 0) > 1) problems.push(`Implausible rounding amount ${money(t.rounding)}`);
   for (const b of inv.taxBreakdown) {
+    if (['E', 'AE', 'K', 'G', 'O'].includes(b.category) && b.amount)
+      problems.push(`VAT category ${b.category} must have 0.00 VAT, invoice says ${money(b.amount)}`);
     if (b.rate !== null && b.basis !== null && b.amount !== null && !near(b.basis * b.rate / 100, b.amount, 0.01 + Math.abs(b.basis) * 0.0005))
       problems.push(`VAT ${b.rate}% on ${money(b.basis)} should be ${money(b.basis * b.rate / 100)}, invoice says ${money(b.amount)}`);
   }

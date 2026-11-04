@@ -1,9 +1,9 @@
 {
- "name": "Process incoming e-invoices (XRechnung, ZUGFeRD, Factur-X) with checks and a local AI fallback",
+ "name": "Process incoming e-invoices (XRechnung, ZUGFeRD) with IBAN fraud check, approval via email/WhatsApp/Telegram and DATEV forwarding",
  "nodes": [
   {
    "parameters": {
-    "content": "## Process incoming e-invoices (XRechnung, ZUGFeRD, Factur-X, Peppol) — no data leaves your n8n\n\nSince January 2025 every business in Germany has to be able to **receive** e-invoices, and from 2027/2028 B2B e-invoicing becomes mandatory. France, Belgium and others follow the same EN 16931 standard. The problem: an XRechnung is an XML file nobody can read, and a ZUGFeRD PDF hides its data in an attachment.\n\nThis workflow turns every incoming e-invoice into a clean, checked record — **without any external API, OCR service or community node**. The XML is read inside n8n with plain JavaScript, so invoice data stays on your instance (GDPR / DSGVO friendly).\n\n### How it works\n1. **Email (IMAP)** or the **upload form** delivers PDF/XML attachments.\n2. **Find e-invoice XML** takes XML files as they are and extracts the embedded XML from ZUGFeRD / Factur-X PDFs (PDF/A-3, decompressed in pure JS).\n3. **Parse & check** reads CII (ZUGFeRD 2.x, Factur-X, XRechnung CII), ZUGFeRD 1.0 and UBL (XRechnung UBL, Peppol) into one structure and runs plausibility checks: line sums, net + VAT = gross, VAT per rate, amount due, IBAN checksum, VAT ID format, missing mandatory fields, overdue date.\n4. PDFs **without** XML go to a **local AI model (Ollama)**, which reads the key fields. These are always marked for review.\n5. **Duplicates** (same seller + invoice number) are detected with an n8n Data Table, new invoices are stored there.\n6. Anything that needs attention — problems, AI-read PDFs, duplicates — is emailed to accounting, with a **readable PDF** of every XRechnung attached.\n7. Clean invoices can be forwarded automatically to your bookkeeping inbox (**DATEV Upload Mail**, Lexware Office, …). DATEV Upload Mail does not accept XML, so XRechnungen are sent as the readable PDF.\n8. *Export last month* sends a CSV of all invoices to your tax advisor.\n\nTested against the official ZUGFeRD / Factur-X corpus and the KoSIT XRechnung test suite (222 files) and end-to-end on n8n 2.43 (IMAP trigger, Data Table, AI fallback with Gemini). This is a plausibility check, not a full Schematron validation.\n\n### Set up (about 10 minutes)\n1. Run *Run once: create table* (yellow note) to create the **e_invoices** Data Table.\n2. Add your **IMAP** credentials to *New invoice email* and **SMTP** credentials to the email nodes. Some hosts (e.g. DigitalOcean) block outgoing SMTP — then swap the email nodes for the Gmail or Microsoft Outlook node; attachment names work the same way.\n3. Set your addresses in **Settings**. `accountingInbox` is optional: leave it empty to skip forwarding.\n4. Optional: point *Local AI model* to your Ollama server (or swap in any chat model). If you don't need the PDF fallback, delete the purple section.\n5. Test with the upload form, then activate.\n\nBuilt by Denis Shokhirev · DennisCraft AI Studio, Freiburg — gerdennisai.com",
+    "content": "## Process incoming e-invoices (XRechnung, ZUGFeRD, Factur-X, Peppol) — no data leaves your n8n\n\nSince January 2025 every business in Germany has to be able to **receive** e-invoices, and from 2027/2028 B2B e-invoicing becomes mandatory. France, Belgium and others follow the same EN 16931 standard. The problem: an XRechnung is an XML file nobody can read, and a ZUGFeRD PDF hides its data in an attachment.\n\nThis workflow turns every incoming e-invoice into a clean, checked record — **without any external API, OCR service or community node**. The XML is read inside n8n with plain JavaScript, so invoice data stays on your instance (GDPR / DSGVO friendly).\n\n### How it works\n1. **Email (IMAP)** or the **upload form** delivers the files. PDF and XML are recognised by content (also without a file extension), **ZIP archives are unpacked**. A mail without any invoice file — typically a link to a supplier portal — is reported to accounting with the links found, instead of disappearing.\n2. **Find e-invoice XML** takes XML files as they are and extracts the embedded XML from ZUGFeRD / Factur-X PDFs (PDF/A-3, decompressed in pure JS).\n3. **Parse & check** reads CII (ZUGFeRD 2.x, Factur-X, XRechnung CII), ZUGFeRD 1.0 and UBL (XRechnung UBL, Peppol) into one structure and runs plausibility checks: line sums, net + VAT = gross, VAT per rate, amount due, IBAN checksum, VAT ID format, missing mandatory fields, overdue date.\n4. PDFs **without** XML go to a **local AI model (Ollama)**, which reads the key fields. These are always marked for review. Scans without a text layer, broken PDFs and an unreachable model go straight to a person — nothing is lost when a step fails.\n5. **Duplicates** (same seller + invoice number, or the identical file) are detected with an n8n Data Table, new invoices are stored there.\n6. **Supplier check** against earlier invoices: an IBAN this supplier never used before stops the invoice (changed bank details are the classic invoice fraud), a different sender domain and a first invoice from a new supplier are noted.\n7. Anything that needs attention — problems, AI-read PDFs, duplicates — is emailed to accounting, with a **readable PDF** of every XRechnung attached.\n8. Clean invoices can be forwarded automatically to your bookkeeping inbox (**DATEV Upload Mail**, Lexware Office, …). DATEV Upload Mail does not accept XML, so XRechnungen are sent as the readable PDF.\n9. *Export last month* sends a CSV of all invoices to your tax advisor.\n\nTested against the official ZUGFeRD / Factur-X corpus and the KoSIT XRechnung test suite (330 files) and end-to-end on n8n 2.43: IMAP trigger, Data Table, AI fallback, plus ten failure cases (changed IBAN, ZIP, portal link, scan, model down, same file name, non-invoice XML, duplicate). This is a plausibility check, not a full Schematron validation.\n\n### Set up (about 10 minutes)\n1. Run *Run once: create table* (yellow note) to create the **e_invoices** Data Table.\n2. Add your **IMAP** credentials to *New invoice email* and **SMTP** credentials to the email nodes. Some hosts (e.g. DigitalOcean) block outgoing SMTP — then swap the email nodes for the Gmail or Microsoft Outlook node; attachment names work the same way.\n3. Set your addresses in **Settings**. `accountingInbox` is optional: leave it empty to skip forwarding.\n4. Optional: point *Local AI model* to your Ollama server (or swap in any chat model). If you don't need the PDF fallback, delete the purple section.\n5. Test with the upload form, then activate.\n\nBuilt by Denis Shokhirev · DennisCraft AI Studio, Freiburg — gerdennisai.com",
     "width": 560,
     "height": 1180,
     "color": 6
@@ -27,13 +27,13 @@
    "type": "n8n-nodes-base.stickyNote",
    "typeVersion": 1,
    "position": [
-    2300,
+    3020,
     -420
    ]
   },
   {
    "parameters": {
-    "content": "### Fallback: PDF without e-invoice data\nMany suppliers still send plain PDFs. Their text goes to a **local** model via Ollama, so the invoice never leaves your infrastructure. Any chat model works (Mistral, Llama, Qwen — or a cloud model if your privacy rules allow it).\n\nScanned PDFs without a text layer are not covered — add OCR in front if you need it.",
+    "content": "### Fallback: PDF without e-invoice data\nMany suppliers still send plain PDFs. Their text goes to a **local** model via Ollama, so the invoice never leaves your infrastructure. Any chat model works (Mistral, Llama, Qwen — or a cloud model if your privacy rules allow it).\n\nScanned PDFs without a text layer, broken PDFs and a model that does not answer end up in *Could not read PDF* and are sent to a person with the file — add OCR in front if you get many scans.",
     "width": 900,
     "height": 440,
     "color": 6
@@ -42,7 +42,7 @@
    "type": "n8n-nodes-base.stickyNote",
    "typeVersion": 1,
    "position": [
-    740,
+    980,
     380
    ]
   },
@@ -57,8 +57,23 @@
    "type": "n8n-nodes-base.stickyNote",
    "typeVersion": 1,
    "position": [
-    1500,
+    1740,
     -420
+   ]
+  },
+  {
+   "parameters": {
+    "content": "### Supplier check — changed bank details\nFraudsters send a perfect copy of a real invoice with **their** IBAN. *Check supplier* compares every new invoice with the earlier ones of the same seller (VAT ID, else name):\n- **IBAN never used by this supplier** → status *check*, with the advice to confirm by phone on a number you already know.\n- different sender domain (e.g. `.de` → `.com`) and first invoice from a new supplier → note.\n\nA new IBAN only becomes trusted when you set `ibanConfirmed` = `yes` on that row — an invoice that came in with the alarm never whitelists itself.",
+    "width": 520,
+    "height": 340,
+    "color": 3
+   },
+   "name": "Supplier note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    2400,
+    420
    ]
   },
   {
@@ -82,7 +97,7 @@
    "type": "n8n-nodes-base.manualTrigger",
    "typeVersion": 1,
    "position": [
-    2340,
+    3060,
     -160
    ]
   },
@@ -170,6 +185,26 @@
        "type": "string"
       },
       {
+       "name": "fileHash",
+       "type": "string"
+      },
+      {
+       "name": "previousIban",
+       "type": "string"
+      },
+      {
+       "name": "ibanConfirmed",
+       "type": "string"
+      },
+      {
+       "name": "approval",
+       "type": "string"
+      },
+      {
+       "name": "approvalAt",
+       "type": "string"
+      },
+      {
        "name": "netAmount",
        "type": "number"
       },
@@ -197,7 +232,7 @@
    "type": "n8n-nodes-base.dataTable",
    "typeVersion": 1.1,
    "position": [
-    2560,
+    3280,
     -160
    ]
   },
@@ -220,14 +255,14 @@
   {
    "parameters": {
     "formTitle": "Upload e-invoices",
-    "formDescription": "PDF (ZUGFeRD / Factur-X or plain) and XML (XRechnung / UBL) files",
+    "formDescription": "PDF (ZUGFeRD / Factur-X or plain), XML (XRechnung / UBL) or a ZIP with them",
     "formFields": {
      "values": [
       {
        "fieldLabel": "Invoices",
        "fieldType": "file",
        "multipleFiles": true,
-       "acceptFileTypes": ".pdf,.xml",
+       "acceptFileTypes": ".pdf,.xml,.zip",
        "requiredField": true
       }
      ]
@@ -270,6 +305,48 @@
        "name": "invoiceViewLanguage",
        "type": "string",
        "value": "de"
+      },
+      {
+       "id": "s4",
+       "name": "approvalChannel",
+       "type": "string",
+       "value": "email"
+      },
+      {
+       "id": "s5",
+       "name": "approverEmail",
+       "type": "string",
+       "value": "owner@example.com"
+      },
+      {
+       "id": "s6",
+       "name": "approverWhatsApp",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "id": "s7",
+       "name": "approverTelegramChatId",
+       "type": "string",
+       "value": ""
+      },
+      {
+       "id": "s8",
+       "name": "approvalFromAmount",
+       "type": "number",
+       "value": 0
+      },
+      {
+       "id": "s9",
+       "name": "approvalCurrency",
+       "type": "string",
+       "value": "EUR"
+      },
+      {
+       "id": "s10",
+       "name": "approvalWaitHours",
+       "type": "number",
+       "value": 48
       }
      ]
     },
@@ -288,7 +365,7 @@
   },
   {
    "parameters": {
-    "jsCode": "// One item per PDF or XML attachment (works for the email trigger and the upload form).\nconst out = [];\n$input.all().forEach((item, i) => {\n  for (const [key, bin] of Object.entries(item.binary || {})) {\n    const name = bin.fileName || key;\n    if (!/\\.(pdf|xml)$/i.test(name) && !/(pdf|xml)/i.test(bin.mimeType || '')) continue;\n    out.push({\n      json: {\n        fileName: name,\n        emailFrom: item.json.from || '',\n        emailSubject: item.json.subject || '',\n        receivedAt: item.json.date || new Date().toISOString(),\n      },\n      binary: { data: bin },\n      pairedItem: i,\n    });\n  }\n});\nreturn out;"
+    "jsCode": "// Extract the embedded e-invoice XML (ZUGFeRD / Factur-X / XRechnung) from a PDF/A-3.\n// Pure JavaScript: no require(), no zlib, no external API. Runs in the n8n Code node sandbox.\n\n// --- Minimal inflate (RFC 1951), adapted from the public-domain \"tinf\" approach ---\nconst INFLATE_MAX = 25 * 1024 * 1024; // ZIP bombs / huge streams: stop instead of running out of memory\n\nfunction inflateRaw(src) {\n  // Output in a growing byte array (a plain JS array would need ~8× the memory)\n  let out = new Uint8Array(Math.min(INFLATE_MAX, Math.max(65536, src.length * 4))), n = 0;\n  const room = need => {\n    if (n + need <= out.length) return;\n    if (n + need > INFLATE_MAX) throw new Error('inflate: output larger than 25 MB');\n    let cap = out.length;\n    while (cap < n + need) cap *= 2;\n    const next = new Uint8Array(Math.min(cap, INFLATE_MAX));\n    next.set(out.subarray(0, n));\n    out = next;\n  };\n  let pos = 0, bitBuf = 0, bitCnt = 0;\n  const bits = n => {\n    while (bitCnt < n) {\n      if (pos >= src.length) throw new Error('inflate: unexpected end of data');\n      bitBuf |= src[pos++] << bitCnt; bitCnt += 8;\n    }\n    const v = bitBuf & ((1 << n) - 1);\n    bitBuf >>>= n; bitCnt -= n;\n    return v;\n  };\n  const build = lengths => {\n    const counts = new Uint16Array(16), offs = new Uint16Array(16), symbols = new Uint16Array(lengths.length);\n    for (const l of lengths) counts[l]++;\n    counts[0] = 0;\n    for (let i = 1; i < 16; i++) offs[i] = offs[i - 1] + counts[i - 1];\n    lengths.forEach((l, s) => { if (l) symbols[offs[l]++] = s; });\n    return { counts, symbols };\n  };\n  const decode = t => {\n    let code = 0, first = 0, index = 0;\n    for (let len = 1; len < 16; len++) {\n      code |= bits(1);\n      const c = t.counts[len];\n      if (code - first < c) return t.symbols[index + code - first];\n      index += c; first = (first + c) << 1; code <<= 1;\n    }\n    throw new Error('inflate: bad code');\n  };\n  const LBASE = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];\n  const LEXT = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];\n  const DBASE = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];\n  const DEXT = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];\n  let fixedL, fixedD;\n  const fixed = () => {\n    if (!fixedL) {\n      const l = new Array(288);\n      for (let i = 0; i < 288; i++) l[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;\n      fixedL = build(l); fixedD = build(new Array(30).fill(5));\n    }\n    return [fixedL, fixedD];\n  };\n  const ORDER = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];\n  const dynamic = () => {\n    const hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;\n    const cl = new Array(19).fill(0);\n    for (let i = 0; i < hclen; i++) cl[ORDER[i]] = bits(3);\n    const clt = build(cl);\n    const lens = [];\n    while (lens.length < hlit + hdist) {\n      const sym = decode(clt);\n      if (sym < 16) lens.push(sym);\n      else if (sym === 16) { const p = lens[lens.length - 1]; for (let r = 3 + bits(2); r; r--) lens.push(p); }\n      else if (sym === 17) for (let r = 3 + bits(3); r; r--) lens.push(0);\n      else for (let r = 11 + bits(7); r; r--) lens.push(0);\n    }\n    return [build(lens.slice(0, hlit)), build(lens.slice(hlit))];\n  };\n  let last;\n  do {\n    last = bits(1);\n    const type = bits(2);\n    if (type === 0) {\n      bitBuf = 0; bitCnt = 0;\n      const len = src[pos] | (src[pos + 1] << 8);\n      pos += 4;\n      room(len);\n      out.set(src.subarray(pos, pos + len), n);\n      n += len; pos += len;\n    } else if (type === 1 || type === 2) {\n      const [lt, dt] = type === 1 ? fixed() : dynamic();\n      for (;;) {\n        const sym = decode(lt);\n        if (sym < 256) { room(1); out[n++] = sym; }\n        else if (sym === 256) break;\n        else {\n          const li = sym - 257, len = LBASE[li] + bits(LEXT[li]);\n          const di = decode(dt), dist = DBASE[di] + bits(DEXT[di]);\n          if (dist > n) throw new Error('inflate: bad distance');\n          room(len);\n          for (let i = 0; i < len; i++, n++) out[n] = out[n - dist];\n        }\n      }\n    } else throw new Error('inflate: invalid block type');\n  } while (!last);\n  return Buffer.from(out.subarray(0, n));\n}\n\n// zlib stream (FlateDecode) = 2-byte header + raw deflate + adler32\nconst inflateZlib = buf => inflateRaw(buf.subarray(2));\n\n// Find every stream whose dictionary marks it as an embedded file, decode it, keep the XML.\nfunction extractEmbeddedXml(pdf) {\n  const text = pdf.toString('latin1');\n  const found = [];\n  const re = /<<((?:(?!>>\\s*stream)[\\s\\S]){0,2000})>>\\s*stream\\r?\\n/g;\n  let m;\n  while ((m = re.exec(text))) {\n    const dict = m[1];\n    if (!/\\/Type\\s*\\/EmbeddedFile\\b/.test(dict) && !/\\/Subtype\\s*\\/(text#2Fxml|application#2Fxml)/.test(dict)) continue;\n    const start = m.index + m[0].length;\n    const end = text.indexOf('endstream', start);\n    if (end < 0) continue;\n    let raw = pdf.subarray(start, end);\n    let data;\n    try {\n      data = /\\/FlateDecode/.test(dict) ? inflateZlib(raw) : raw;\n    } catch (e) {\n      continue;\n    }\n    const xml = data.toString('utf8').replace(/^﻿/, '').trim();\n    if (/<(\\w+:)?(CrossIndustryInvoice|CrossIndustryDocument|Invoice|CreditNote)\\b/.test(xml)) found.push(xml);\n  }\n  return found;\n}\n\n// Which attachments are invoices: PDF and XML by content (not only by file name), ZIP archives unpacked.\n// Needs inflateRaw from extract_xml.js. Nothing is dropped silently: skipped files are listed.\n\nfunction sniffKind(buf, name, mime) {\n  const head = buf.subarray(0, 1024).toString('latin1').replace(/^﻿|^ï»¿/, '').trimStart();\n  if (head.startsWith('%PDF')) return 'pdf';\n  if (buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) return 'zip';\n  if (head.startsWith('<')) return 'xml';\n  if (/\\.pdf$/i.test(name) || /pdf/i.test(mime || '')) return 'pdf';\n  if (/\\.xml$/i.test(name) || /xml/i.test(mime || '')) return 'xml';\n  return null;\n}\n\n// ZIP via the central directory (sizes are reliable there even with data descriptors).\nfunction unzip(buf) {\n  let eocd = -1;\n  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {\n    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }\n  }\n  if (eocd < 0) throw new Error('ZIP: end of central directory not found');\n  const count = buf.readUInt16LE(eocd + 10);\n  if (count > 500) throw new Error('ZIP: more than 500 files');\n  let total = 0;\n  let p = buf.readUInt32LE(eocd + 16);\n  const files = [];\n  for (let n = 0; n < count; n++) {\n    if (buf.readUInt32LE(p) !== 0x02014b50) throw new Error('ZIP: broken central directory');\n    const flags = buf.readUInt16LE(p + 8), method = buf.readUInt16LE(p + 10);\n    const csize = buf.readUInt32LE(p + 20), nameLen = buf.readUInt16LE(p + 28);\n    const extraLen = buf.readUInt16LE(p + 30), commentLen = buf.readUInt16LE(p + 32);\n    const local = buf.readUInt32LE(p + 42);\n    const name = buf.subarray(p + 46, p + 46 + nameLen).toString(flags & 0x800 ? 'utf8' : 'latin1');\n    p += 46 + nameLen + extraLen + commentLen;\n    if (name.endsWith('/')) continue;\n    const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);\n    const raw = buf.subarray(start, start + csize);\n    if (flags & 1) { files.push({ name, error: 'encrypted' }); continue; }\n    if (method === 0) files.push({ name, data: raw });\n    else if (method === 8) {\n      const data = inflateRaw(raw);\n      total += data.length;\n      if (total > 60 * 1024 * 1024) throw new Error('ZIP: unpacked size larger than 60 MB');\n      files.push({ name, data });\n    }\n    else files.push({ name, error: 'compression method ' + method });\n  }\n  return files;\n}\n\n// entries: [{ name, mime, buf }] → { files: [{ name, buf, kind }], skipped: ['name (reason)'] }\nfunction pickInvoiceFiles(entries, depth = 0) {\n  const files = [], skipped = [];\n  for (const e of entries) {\n    const kind = sniffKind(e.buf, e.name, e.mime);\n    if (kind === 'zip' && depth < 2) {\n      try {\n        const inner = unzip(e.buf);\n        inner.filter(f => f.error).forEach(f => skipped.push(`${e.name}/${f.name} (${f.error})`));\n        const r = pickInvoiceFiles(inner.filter(f => f.data).map(f => ({ name: f.name, mime: '', buf: f.data })), depth + 1);\n        r.files.forEach(f => files.push({ ...f, name: f.name.split('/').pop(), fromZip: e.name }));\n        r.skipped.forEach(s => skipped.push(`${e.name}/${s}`));\n      } catch (err) {\n        skipped.push(`${e.name} (ZIP could not be opened: ${err.message})`);\n      }\n    } else if (kind === 'pdf' || kind === 'xml') {\n      files.push({ name: e.name, buf: e.buf, kind });\n    } else if (!/\\.(png|jpe?g|gif|svg|ics|vcf)$/i.test(e.name) || e.buf.length > 200000) {\n      // small images are logos in signatures; anything else is listed so a person can look at it\n      skipped.push(`${e.name} (not a PDF, XML or ZIP)`);\n    }\n  }\n  return { files, skipped };\n}\n\n// Links in the mail body that look like an invoice download (portal invoices without attachment).\nfunction invoiceLinks(text) {\n  const urls = String(text || '').match(/https?:\\/\\/[^\\s\"'<>)\\]]+/g) || [];\n  const hit = /rechnung|invoice|faktura|beleg|billing|download|portal|kundencenter|mein-?konto|account/i;\n  return [...new Set(urls.filter(u => hit.test(u)))].slice(0, 5);\n}\n\n// One item per invoice file. PDF/XML are recognised by content, ZIP archives are unpacked.\n// A mail without any invoice file still yields one item (noFile), so nobody misses a portal-link invoice.\nconst out = [];\nfor (const [i, item] of $input.all().entries()) {\n  const entries = [];\n  for (const [key, bin] of Object.entries(item.binary || {})) {\n    entries.push({ name: bin.fileName || key, mime: bin.mimeType || '', buf: await this.helpers.getBinaryDataBuffer(i, key) });\n  }\n  const { files, skipped } = pickInvoiceFiles(entries);\n  const meta = {\n    emailFrom: item.json.from || '',\n    emailSubject: item.json.subject || '',\n    receivedAt: item.json.date || new Date().toISOString(),\n    skipped: skipped.join('\\n'),\n  };\n  for (const f of files) {\n    const fileName = /\\.(pdf|xml)$/i.test(f.name) ? f.name : f.name + '.' + f.kind;\n    const mime = f.kind === 'pdf' ? 'application/pdf' : 'application/xml';\n    const data = await this.helpers.prepareBinaryData(f.buf, fileName, mime);\n    out.push({ json: { ...meta, noFile: false, fileName, fromZip: f.fromZip || '' }, binary: { data }, pairedItem: i });\n  }\n  if (!files.length) {\n    const body = (item.json.textPlain || '') + ' ' + (item.json.textHtml || '');\n    out.push({ json: { ...meta, noFile: true, fileName: '', links: invoiceLinks(body).join('\\n') }, pairedItem: i });\n  }\n}\nreturn out;"
    },
    "name": "Split attachments",
    "type": "n8n-nodes-base.code",
@@ -300,13 +377,66 @@
   },
   {
    "parameters": {
-    "jsCode": "// Extract the embedded e-invoice XML (ZUGFeRD / Factur-X / XRechnung) from a PDF/A-3.\n// Pure JavaScript: no require(), no zlib, no external API. Runs in the n8n Code node sandbox.\n\n// --- Minimal inflate (RFC 1951), adapted from the public-domain \"tinf\" approach ---\nfunction inflateRaw(src) {\n  const out = [];\n  let pos = 0, bitBuf = 0, bitCnt = 0;\n  const bits = n => {\n    while (bitCnt < n) {\n      if (pos >= src.length) throw new Error('inflate: unexpected end of data');\n      bitBuf |= src[pos++] << bitCnt; bitCnt += 8;\n    }\n    const v = bitBuf & ((1 << n) - 1);\n    bitBuf >>>= n; bitCnt -= n;\n    return v;\n  };\n  const build = lengths => {\n    const counts = new Uint16Array(16), offs = new Uint16Array(16), symbols = new Uint16Array(lengths.length);\n    for (const l of lengths) counts[l]++;\n    counts[0] = 0;\n    for (let i = 1; i < 16; i++) offs[i] = offs[i - 1] + counts[i - 1];\n    lengths.forEach((l, s) => { if (l) symbols[offs[l]++] = s; });\n    return { counts, symbols };\n  };\n  const decode = t => {\n    let code = 0, first = 0, index = 0;\n    for (let len = 1; len < 16; len++) {\n      code |= bits(1);\n      const c = t.counts[len];\n      if (code - first < c) return t.symbols[index + code - first];\n      index += c; first = (first + c) << 1; code <<= 1;\n    }\n    throw new Error('inflate: bad code');\n  };\n  const LBASE = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];\n  const LEXT = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];\n  const DBASE = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];\n  const DEXT = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];\n  let fixedL, fixedD;\n  const fixed = () => {\n    if (!fixedL) {\n      const l = new Array(288);\n      for (let i = 0; i < 288; i++) l[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;\n      fixedL = build(l); fixedD = build(new Array(30).fill(5));\n    }\n    return [fixedL, fixedD];\n  };\n  const ORDER = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];\n  const dynamic = () => {\n    const hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;\n    const cl = new Array(19).fill(0);\n    for (let i = 0; i < hclen; i++) cl[ORDER[i]] = bits(3);\n    const clt = build(cl);\n    const lens = [];\n    while (lens.length < hlit + hdist) {\n      const sym = decode(clt);\n      if (sym < 16) lens.push(sym);\n      else if (sym === 16) { const p = lens[lens.length - 1]; for (let r = 3 + bits(2); r; r--) lens.push(p); }\n      else if (sym === 17) for (let r = 3 + bits(3); r; r--) lens.push(0);\n      else for (let r = 11 + bits(7); r; r--) lens.push(0);\n    }\n    return [build(lens.slice(0, hlit)), build(lens.slice(hlit))];\n  };\n  let last;\n  do {\n    last = bits(1);\n    const type = bits(2);\n    if (type === 0) {\n      bitBuf = 0; bitCnt = 0;\n      const len = src[pos] | (src[pos + 1] << 8);\n      pos += 4;\n      for (let i = 0; i < len; i++) out.push(src[pos++]);\n    } else if (type === 1 || type === 2) {\n      const [lt, dt] = type === 1 ? fixed() : dynamic();\n      for (;;) {\n        const sym = decode(lt);\n        if (sym < 256) out.push(sym);\n        else if (sym === 256) break;\n        else {\n          const li = sym - 257, len = LBASE[li] + bits(LEXT[li]);\n          const di = decode(dt), dist = DBASE[di] + bits(DEXT[di]);\n          for (let i = 0; i < len; i++) out.push(out[out.length - dist]);\n        }\n      }\n    } else throw new Error('inflate: invalid block type');\n  } while (!last);\n  return Buffer.from(out);\n}\n\n// zlib stream (FlateDecode) = 2-byte header + raw deflate + adler32\nconst inflateZlib = buf => inflateRaw(buf.subarray(2));\n\n// Find every stream whose dictionary marks it as an embedded file, decode it, keep the XML.\nfunction extractEmbeddedXml(pdf) {\n  const text = pdf.toString('latin1');\n  const found = [];\n  const re = /<<((?:(?!>>\\s*stream)[\\s\\S]){0,2000})>>\\s*stream\\r?\\n/g;\n  let m;\n  while ((m = re.exec(text))) {\n    const dict = m[1];\n    if (!/\\/Type\\s*\\/EmbeddedFile\\b/.test(dict) && !/\\/Subtype\\s*\\/(text#2Fxml|application#2Fxml)/.test(dict)) continue;\n    const start = m.index + m[0].length;\n    const end = text.indexOf('endstream', start);\n    if (end < 0) continue;\n    let raw = pdf.subarray(start, end);\n    let data;\n    try {\n      data = /\\/FlateDecode/.test(dict) ? inflateZlib(raw) : raw;\n    } catch (e) {\n      continue;\n    }\n    const xml = data.toString('utf8').replace(/^﻿/, '').trim();\n    if (/<(\\w+:)?(CrossIndustryInvoice|CrossIndustryDocument|Invoice|CreditNote)\\b/.test(xml)) found.push(xml);\n  }\n  return found;\n}\n\n// XML files are taken as they are; PDFs are searched for an embedded e-invoice (ZUGFeRD / Factur-X).\nconst out = [];\nfor (const [i, item] of $input.all().entries()) {\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const isXml = /\\.xml$/i.test(item.json.fileName) || /xml/i.test(item.binary.data.mimeType || '');\n  let xml = null;\n  try {\n    xml = isXml ? buf.toString('utf8').replace(/^﻿/, '') : (extractEmbeddedXml(buf)[0] || null);\n  } catch (e) {\n    xml = null;\n  }\n  out.push({ json: { ...item.json, hasXml: !!xml, xml }, binary: item.binary, pairedItem: i });\n}\nreturn out;"
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c1",
+       "leftValue": "={{ !$json.noFile }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "name": "Has invoice file?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    720,
+    100
+   ]
+  },
+  {
+   "parameters": {
+    "fromEmail": "={{ $('Settings').first().json.senderEmail }}",
+    "toEmail": "={{ $('Settings').first().json.accountingEmail }}",
+    "subject": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'No invoice file in mail' : 'Keine Rechnungsdatei in der Mail' }}: {{ $json.emailSubject }}",
+    "emailFormat": "html",
+    "html": "={{ (() => {\n  const j = $json;\n  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\n  const list = s => s ? '<ul>' + s.split('\\n').map(p => '<li>' + esc(p) + '</li>').join('') + '</ul>' : '';\n  const en = $('Settings').first().json.invoiceViewLanguage === 'en';\n  const t = en\n    ? { head: '<b>A mail arrived in the invoice inbox without an invoice file.</b> Often the invoice is only a link to a supplier portal — download it and upload it with the form.', from: 'From', subj: 'Subject', rec: 'Received', links: 'Links that look like an invoice', skipped: 'Attachments that were not processed' }\n    : { head: '<b>Im Rechnungspostfach kam eine Mail ohne Rechnungsdatei an.</b> Oft ist die Rechnung nur ein Link auf ein Lieferantenportal – dort herunterladen und über das Formular hochladen.', from: 'Von', subj: 'Betreff', rec: 'Eingang', links: 'Links, die nach einer Rechnung aussehen', skipped: 'Nicht verarbeitete Anhänge' };\n  return `<p>${t.head}</p>\n<p>${t.from}: ${esc(j.emailFrom)}<br>${t.subj}: ${esc(j.emailSubject)}<br>${t.rec}: ${esc(j.receivedAt)}</p>\n${j.links ? '<p><b>' + t.links + '</b></p>' + list(j.links) : ''}${j.skipped ? '<p><b>' + t.skipped + '</b></p>' + list(j.skipped) : ''}`;\n})() }}",
+    "options": {}
+   },
+   "name": "Email: no invoice file",
+   "type": "n8n-nodes-base.emailSend",
+   "typeVersion": 2.1,
+   "position": [
+    960,
+    -160
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
+  },
+  {
+   "parameters": {
+    "jsCode": "// Extract the embedded e-invoice XML (ZUGFeRD / Factur-X / XRechnung) from a PDF/A-3.\n// Pure JavaScript: no require(), no zlib, no external API. Runs in the n8n Code node sandbox.\n\n// --- Minimal inflate (RFC 1951), adapted from the public-domain \"tinf\" approach ---\nconst INFLATE_MAX = 25 * 1024 * 1024; // ZIP bombs / huge streams: stop instead of running out of memory\n\nfunction inflateRaw(src) {\n  // Output in a growing byte array (a plain JS array would need ~8× the memory)\n  let out = new Uint8Array(Math.min(INFLATE_MAX, Math.max(65536, src.length * 4))), n = 0;\n  const room = need => {\n    if (n + need <= out.length) return;\n    if (n + need > INFLATE_MAX) throw new Error('inflate: output larger than 25 MB');\n    let cap = out.length;\n    while (cap < n + need) cap *= 2;\n    const next = new Uint8Array(Math.min(cap, INFLATE_MAX));\n    next.set(out.subarray(0, n));\n    out = next;\n  };\n  let pos = 0, bitBuf = 0, bitCnt = 0;\n  const bits = n => {\n    while (bitCnt < n) {\n      if (pos >= src.length) throw new Error('inflate: unexpected end of data');\n      bitBuf |= src[pos++] << bitCnt; bitCnt += 8;\n    }\n    const v = bitBuf & ((1 << n) - 1);\n    bitBuf >>>= n; bitCnt -= n;\n    return v;\n  };\n  const build = lengths => {\n    const counts = new Uint16Array(16), offs = new Uint16Array(16), symbols = new Uint16Array(lengths.length);\n    for (const l of lengths) counts[l]++;\n    counts[0] = 0;\n    for (let i = 1; i < 16; i++) offs[i] = offs[i - 1] + counts[i - 1];\n    lengths.forEach((l, s) => { if (l) symbols[offs[l]++] = s; });\n    return { counts, symbols };\n  };\n  const decode = t => {\n    let code = 0, first = 0, index = 0;\n    for (let len = 1; len < 16; len++) {\n      code |= bits(1);\n      const c = t.counts[len];\n      if (code - first < c) return t.symbols[index + code - first];\n      index += c; first = (first + c) << 1; code <<= 1;\n    }\n    throw new Error('inflate: bad code');\n  };\n  const LBASE = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];\n  const LEXT = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];\n  const DBASE = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];\n  const DEXT = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];\n  let fixedL, fixedD;\n  const fixed = () => {\n    if (!fixedL) {\n      const l = new Array(288);\n      for (let i = 0; i < 288; i++) l[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;\n      fixedL = build(l); fixedD = build(new Array(30).fill(5));\n    }\n    return [fixedL, fixedD];\n  };\n  const ORDER = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];\n  const dynamic = () => {\n    const hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;\n    const cl = new Array(19).fill(0);\n    for (let i = 0; i < hclen; i++) cl[ORDER[i]] = bits(3);\n    const clt = build(cl);\n    const lens = [];\n    while (lens.length < hlit + hdist) {\n      const sym = decode(clt);\n      if (sym < 16) lens.push(sym);\n      else if (sym === 16) { const p = lens[lens.length - 1]; for (let r = 3 + bits(2); r; r--) lens.push(p); }\n      else if (sym === 17) for (let r = 3 + bits(3); r; r--) lens.push(0);\n      else for (let r = 11 + bits(7); r; r--) lens.push(0);\n    }\n    return [build(lens.slice(0, hlit)), build(lens.slice(hlit))];\n  };\n  let last;\n  do {\n    last = bits(1);\n    const type = bits(2);\n    if (type === 0) {\n      bitBuf = 0; bitCnt = 0;\n      const len = src[pos] | (src[pos + 1] << 8);\n      pos += 4;\n      room(len);\n      out.set(src.subarray(pos, pos + len), n);\n      n += len; pos += len;\n    } else if (type === 1 || type === 2) {\n      const [lt, dt] = type === 1 ? fixed() : dynamic();\n      for (;;) {\n        const sym = decode(lt);\n        if (sym < 256) { room(1); out[n++] = sym; }\n        else if (sym === 256) break;\n        else {\n          const li = sym - 257, len = LBASE[li] + bits(LEXT[li]);\n          const di = decode(dt), dist = DBASE[di] + bits(DEXT[di]);\n          if (dist > n) throw new Error('inflate: bad distance');\n          room(len);\n          for (let i = 0; i < len; i++, n++) out[n] = out[n - dist];\n        }\n      }\n    } else throw new Error('inflate: invalid block type');\n  } while (!last);\n  return Buffer.from(out.subarray(0, n));\n}\n\n// zlib stream (FlateDecode) = 2-byte header + raw deflate + adler32\nconst inflateZlib = buf => inflateRaw(buf.subarray(2));\n\n// Find every stream whose dictionary marks it as an embedded file, decode it, keep the XML.\nfunction extractEmbeddedXml(pdf) {\n  const text = pdf.toString('latin1');\n  const found = [];\n  const re = /<<((?:(?!>>\\s*stream)[\\s\\S]){0,2000})>>\\s*stream\\r?\\n/g;\n  let m;\n  while ((m = re.exec(text))) {\n    const dict = m[1];\n    if (!/\\/Type\\s*\\/EmbeddedFile\\b/.test(dict) && !/\\/Subtype\\s*\\/(text#2Fxml|application#2Fxml)/.test(dict)) continue;\n    const start = m.index + m[0].length;\n    const end = text.indexOf('endstream', start);\n    if (end < 0) continue;\n    let raw = pdf.subarray(start, end);\n    let data;\n    try {\n      data = /\\/FlateDecode/.test(dict) ? inflateZlib(raw) : raw;\n    } catch (e) {\n      continue;\n    }\n    const xml = data.toString('utf8').replace(/^﻿/, '').trim();\n    if (/<(\\w+:)?(CrossIndustryInvoice|CrossIndustryDocument|Invoice|CreditNote)\\b/.test(xml)) found.push(xml);\n  }\n  return found;\n}\n\n// XML files are taken as they are; PDFs are searched for an embedded e-invoice (ZUGFeRD / Factur-X).\nconst out = [];\nfor (const [i, item] of $input.all().entries()) {\n  const buf = await this.helpers.getBinaryDataBuffer(i, 'data');\n  const isXml = /\\.xml$/i.test(item.json.fileName) || /xml/i.test(item.binary.data.mimeType || '');\n  let xml = null, notInvoice = false;\n  // FNV-1a fingerprint of the file: duplicates are found even when no invoice number could be read\n  let h = 0x811c9dc5;\n  for (let k = 0; k < buf.length; k++) h = Math.imul(h ^ buf[k], 16777619) >>> 0;\n  const fileHash = h.toString(16).padStart(8, '0') + '-' + buf.length;\n  try {\n    xml = isXml ? buf.toString('utf8').replace(/^﻿/, '') : (extractEmbeddedXml(buf)[0] || null);\n  } catch (e) {\n    xml = null;\n  }\n  if (xml && !/<(\\w+:)?(CrossIndustryInvoice|CrossIndustryDocument|Invoice|CreditNote)\\b/.test(xml.slice(0, 5000))) notInvoice = true;\n  out.push({ json: { ...item.json, hasXml: !!xml, xml, notInvoice, fileHash }, binary: item.binary, pairedItem: i });\n}\nreturn out;"
    },
    "name": "Find e-invoice XML",
    "type": "n8n-nodes-base.code",
    "typeVersion": 2,
    "position": [
-    720,
+    960,
     100
    ]
   },
@@ -339,7 +469,7 @@
    "type": "n8n-nodes-base.if",
    "typeVersion": 2.2,
    "position": [
-    960,
+    1200,
     100
    ]
   },
@@ -353,8 +483,55 @@
    "type": "n8n-nodes-base.extractFromFile",
    "typeVersion": 1,
    "position": [
-    960,
+    1200,
     500
+   ],
+   "onError": "continueErrorOutput"
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c1",
+       "leftValue": "={{ String($json.text || '').trim().length >= 40 }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "name": "Has text layer?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1440,
+    500
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Scans without a text layer, broken PDFs and AI failures still reach a person, never vanish.\nconst src = $('Find e-invoice XML').item;\nconst e = $json.error;\nconst reason = e ? String(typeof e === 'string' ? e : e.message || JSON.stringify(e)).replace(/\\s+/g, ' ').slice(0, 200) : '';\nreturn {\n  json: { ...src.json, unreadable: reason\n    ? 'Could not read this PDF automatically (' + reason + ') — please enter it by hand'\n    : 'Scanned PDF without a text layer: needs OCR or manual entry' },\n  binary: src.binary,\n};",
+    "mode": "runOnceForEachItem"
+   },
+   "name": "Could not read PDF",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1680,
+    320
    ]
   },
   {
@@ -438,9 +615,10 @@
    "type": "@n8n/n8n-nodes-langchain.informationExtractor",
    "typeVersion": 1.2,
    "position": [
-    1200,
+    1680,
     500
-   ]
+   ],
+   "onError": "continueErrorOutput"
   },
   {
    "parameters": {
@@ -453,7 +631,7 @@
    "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
    "typeVersion": 1,
    "position": [
-    1200,
+    1680,
     700
    ]
   },
@@ -466,19 +644,19 @@
    "type": "n8n-nodes-base.code",
    "typeVersion": 2,
    "position": [
-    1440,
+    1920,
     500
    ]
   },
   {
    "parameters": {
-    "jsCode": "// Parse an EN 16931 e-invoice (CII: ZUGFeRD 2.x / Factur-X / XRechnung-CII, ZUGFeRD 1.0, UBL: XRechnung-UBL / Peppol)\n// into one flat structure and run plausibility checks. Pure JavaScript, no external services.\n\n// --- Tiny XML reader: namespace prefixes are dropped, attributes kept ---\nfunction parseXml(xml) {\n  const root = { name: '#root', attrs: {}, children: [], text: '' };\n  const stack = [root];\n  const ent = s => s.replace(/&(lt|gt|amp|quot|apos|#\\d+|#x[0-9a-f]+);/gi, (m, e) =>\n    e[0] === '#' ? String.fromCodePoint(e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10))\n      : { lt: '<', gt: '>', amp: '&', quot: '\"', apos: \"'\" }[e.toLowerCase()]);\n  const re = /<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|<!--[\\s\\S]*?-->|<\\?[\\s\\S]*?\\?>|<!DOCTYPE[^>]*>|<(\\/?)([\\w.:-]+)((?:\\s+[\\w.:-]+\\s*=\\s*(?:\"[^\"]*\"|'[^']*'))*)\\s*(\\/?)>|([^<]+)/g;\n  let m;\n  while ((m = re.exec(xml))) {\n    const top = stack[stack.length - 1];\n    if (m[1] !== undefined) top.text += m[1];\n    else if (m[6] !== undefined) top.text += ent(m[6]);\n    else if (m[3]) {\n      const name = m[3].replace(/^[\\w.-]+:/, '');\n      if (m[2]) { stack.pop(); continue; }\n      const attrs = {};\n      m[4].replace(/([\\w.:-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')/g, (_, k, a, b) => { attrs[k.replace(/^[\\w.-]+:/, '')] = ent(a ?? b); });\n      const node = { name, attrs, children: [], text: '' };\n      top.children.push(node);\n      if (!m[5]) stack.push(node);\n    }\n  }\n  return root.children[0];\n}\n\n// Path lookup: 'A/B|C/D' — '|' gives alternatives for one step (ZUGFeRD 1.0 vs 2.x names).\nconst all = (node, path) => path.split('/').reduce((nodes, step) => {\n  const names = step.split('|');\n  return nodes.flatMap(n => n.children.filter(c => names.includes(c.name)));\n}, node ? [node] : []);\nconst one = (node, path) => all(node, path)[0];\nconst txt = (node, path) => { const n = path ? one(node, path) : node; return n ? n.text.trim() : ''; };\nconst num = (node, path) => { const t = txt(node, path); return t === '' ? null : Number(t); };\nconst cdate = s => /^\\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s;\n\nfunction normalizeCII(doc) {\n  const v1 = doc.name === 'CrossIndustryDocument' || !!one(doc, 'HeaderExchangedDocument'); // incl. 2014 ZUGFeRD drafts with <Invoice> root\n  const hdr = one(doc, v1 ? 'HeaderExchangedDocument' : 'ExchangedDocument');\n  const tx = one(doc, 'SupplyChainTradeTransaction|SpecifiedSupplyChainTradeTransaction');\n  const agr = one(tx, 'ApplicableHeaderTradeAgreement|ApplicableSupplyChainTradeAgreement');\n  const set = one(tx, 'ApplicableHeaderTradeSettlement|ApplicableSupplyChainTradeSettlement');\n  const sum = one(set, 'SpecifiedTradeSettlementHeaderMonetarySummation|SpecifiedTradeSettlementMonetarySummation');\n  const party = p => p && {\n    name: txt(p, 'Name'),\n    vatId: (all(p, 'SpecifiedTaxRegistration/ID').find(n => n.attrs.schemeID === 'VA') || {}).text?.trim() || '',\n    taxNumber: (all(p, 'SpecifiedTaxRegistration/ID').find(n => n.attrs.schemeID === 'FC') || {}).text?.trim() || '',\n    street: txt(p, 'PostalTradeAddress/LineOne'),\n    postcode: txt(p, 'PostalTradeAddress/PostcodeCode'),\n    city: txt(p, 'PostalTradeAddress/CityName'),\n    country: txt(p, 'PostalTradeAddress/CountryID'),\n    contactName: txt(p, 'DefinedTradeContact/PersonName'),\n    phone: txt(p, 'DefinedTradeContact/TelephoneUniversalCommunication/CompleteNumber'),\n    email: txt(p, 'DefinedTradeContact/EmailURIUniversalCommunication/URIID') || txt(p, 'URIUniversalCommunication/URIID'),\n  };\n  // TaxTotalAmount can appear twice (invoice currency + accounting currency)\n  const currency = txt(set, 'InvoiceCurrencyCode') || (one(sum, 'GrandTotalAmount') || { attrs: {} }).attrs.currencyID || '';\n  const taxTotals = all(sum, 'TaxTotalAmount');\n  const taxTotal = taxTotals.find(n => !n.attrs.currencyID || n.attrs.currencyID === currency) || taxTotals[0];\n  return {\n    syntax: v1 ? 'ZUGFeRD 1.0 (CII)' : 'CII',\n    profile: txt(doc, (v1 ? 'SpecifiedExchangedDocumentContext' : 'ExchangedDocumentContext') + '/GuidelineSpecifiedDocumentContextParameter/ID'),\n    invoiceNumber: txt(hdr, 'ID'),\n    typeCode: txt(hdr, 'TypeCode'),\n    issueDate: cdate(txt(hdr, 'IssueDateTime/DateTimeString') || txt(hdr, 'IssueDateTime')),\n    dueDate: cdate(txt(set, 'SpecifiedTradePaymentTerms/DueDateDateTime/DateTimeString')),\n    deliveryDate: cdate(txt(one(tx, 'ApplicableHeaderTradeDelivery|ApplicableSupplyChainTradeDelivery'), 'ActualDeliverySupplyChainEvent/OccurrenceDateTime/DateTimeString')),\n    paymentTerms: txt(set, 'SpecifiedTradePaymentTerms/Description'),\n    currency,\n    buyerReference: txt(agr, 'BuyerReference'),\n    orderReference: txt(agr, 'BuyerOrderReferencedDocument/IssuerAssignedID'),\n    seller: party(one(agr, 'SellerTradeParty')),\n    buyer: party(one(agr, 'BuyerTradeParty')),\n    iban: txt(set, 'SpecifiedTradeSettlementPaymentMeans/PayeePartyCreditorFinancialAccount/IBANID'),\n    totals: {\n      lineTotal: num(sum, 'LineTotalAmount'),\n      allowances: num(sum, 'AllowanceTotalAmount') || 0,\n      charges: num(sum, 'ChargeTotalAmount') || 0,\n      taxBasis: num(sum, 'TaxBasisTotalAmount'),\n      tax: taxTotal ? Number(taxTotal.text.trim()) : null,\n      grand: num(sum, 'GrandTotalAmount'),\n      prepaid: num(sum, 'TotalPrepaidAmount') || 0,\n      rounding: num(sum, 'RoundingAmount') || 0,\n      due: num(sum, 'DuePayableAmount'),\n    },\n    taxBreakdown: all(set, 'ApplicableTradeTax').map(t => ({\n      category: txt(t, 'CategoryCode'),\n      rate: num(t, 'RateApplicablePercent|ApplicablePercent'),\n      basis: num(t, 'BasisAmount'),\n      amount: num(t, 'CalculatedAmount'),\n    })),\n    lines: all(tx, 'IncludedSupplyChainTradeLineItem').map(l => ({\n      name: txt(l, 'SpecifiedTradeProduct/Name'),\n      quantity: num(l, 'SpecifiedLineTradeDelivery|SpecifiedSupplyChainTradeDelivery/BilledQuantity'),\n      unitPrice: num(l, 'SpecifiedLineTradeAgreement|SpecifiedSupplyChainTradeAgreement/NetPriceProductTradePrice/ChargeAmount'),\n      net: num(l, 'SpecifiedLineTradeSettlement|SpecifiedSupplyChainTradeSettlement/SpecifiedTradeSettlementLineMonetarySummation|SpecifiedTradeSettlementMonetarySummation/LineTotalAmount'),\n      taxRate: num(l, 'SpecifiedLineTradeSettlement|SpecifiedSupplyChainTradeSettlement/ApplicableTradeTax/RateApplicablePercent|ApplicablePercent'),\n    })),\n  };\n}\n\nfunction normalizeUBL(doc) {\n  const credit = doc.name === 'CreditNote';\n  const party = p => p && {\n    name: txt(p, 'PartyLegalEntity/RegistrationName') || txt(p, 'PartyName/Name'),\n    vatId: (all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') === 'VAT') && txt(all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') === 'VAT'), 'CompanyID')) || '',\n    taxNumber: (all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') !== 'VAT') && txt(all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') !== 'VAT'), 'CompanyID')) || '',\n    street: txt(p, 'PostalAddress/StreetName'),\n    postcode: txt(p, 'PostalAddress/PostalZone'),\n    city: txt(p, 'PostalAddress/CityName'),\n    country: txt(p, 'PostalAddress/Country/IdentificationCode'),\n    contactName: txt(p, 'Contact/Name'),\n    phone: txt(p, 'Contact/Telephone'),\n    email: txt(p, 'Contact/ElectronicMail') || txt(p, 'EndpointID'),\n  };\n  const currency = txt(doc, 'DocumentCurrencyCode');\n  const taxTotals = all(doc, 'TaxTotal');\n  const mainTax = taxTotals.find(t => all(t, 'TaxSubtotal').length) || taxTotals[0];\n  const sum = one(doc, 'LegalMonetaryTotal');\n  return {\n    syntax: 'UBL',\n    profile: txt(doc, 'CustomizationID'),\n    invoiceNumber: txt(doc, 'ID'),\n    typeCode: txt(doc, credit ? 'CreditNoteTypeCode' : 'InvoiceTypeCode'),\n    issueDate: txt(doc, 'IssueDate'),\n    dueDate: txt(doc, 'DueDate') || txt(doc, 'PaymentMeans/PaymentDueDate'),\n    deliveryDate: txt(doc, 'Delivery/ActualDeliveryDate'),\n    paymentTerms: txt(doc, 'PaymentTerms/Note'),\n    currency,\n    buyerReference: txt(doc, 'BuyerReference'),\n    orderReference: txt(doc, 'OrderReference/ID'),\n    seller: party(one(doc, 'AccountingSupplierParty/Party')),\n    buyer: party(one(doc, 'AccountingCustomerParty/Party')),\n    iban: txt(doc, 'PaymentMeans/PayeeFinancialAccount/ID'),\n    totals: {\n      lineTotal: num(sum, 'LineExtensionAmount'),\n      allowances: num(sum, 'AllowanceTotalAmount') || 0,\n      charges: num(sum, 'ChargeTotalAmount') || 0,\n      taxBasis: num(sum, 'TaxExclusiveAmount'),\n      tax: mainTax ? num(mainTax, 'TaxAmount') : null,\n      grand: num(sum, 'TaxInclusiveAmount'),\n      prepaid: num(sum, 'PrepaidAmount') || 0,\n      rounding: num(sum, 'PayableRoundingAmount') || 0,\n      due: num(sum, 'PayableAmount'),\n    },\n    taxBreakdown: mainTax ? all(mainTax, 'TaxSubtotal').map(t => ({\n      category: txt(t, 'TaxCategory/ID'),\n      rate: num(t, 'TaxCategory/Percent'),\n      basis: num(t, 'TaxableAmount'),\n      amount: num(t, 'TaxAmount'),\n    })) : [],\n    lines: all(doc, credit ? 'CreditNoteLine' : 'InvoiceLine').map(l => ({\n      name: txt(l, 'Item/Name'),\n      quantity: num(l, credit ? 'CreditedQuantity' : 'InvoicedQuantity'),\n      unitPrice: num(l, 'Price/PriceAmount'),\n      net: num(l, 'LineExtensionAmount'),\n      taxRate: num(l, 'Item/ClassifiedTaxCategory/Percent'),\n    })),\n  };\n}\n\nfunction parseInvoice(xml) {\n  const doc = parseXml(xml);\n  if (!doc) throw new Error('empty XML');\n  if (doc.name === 'CrossIndustryInvoice' || doc.name === 'CrossIndustryDocument') return normalizeCII(doc);\n  if (one(doc, 'HeaderExchangedDocument')) return normalizeCII(doc);\n  if (doc.name === 'Invoice' || doc.name === 'CreditNote') return normalizeUBL(doc);\n  throw new Error('not an EN 16931 invoice: <' + doc.name + '>');\n}\n\n// --- Plausibility checks (a subset of the EN 16931 business rules, not a full Schematron validation) ---\nfunction ibanValid(iban) {\n  const s = iban.replace(/\\s+/g, '').toUpperCase();\n  if (!/^[A-Z]{2}\\d{2}[A-Z0-9]{10,30}$/.test(s)) return false;\n  const r = (s.slice(4) + s.slice(0, 4)).replace(/[A-Z]/g, c => String(c.charCodeAt(0) - 55));\n  let mod = 0;\n  for (const ch of r) mod = (mod * 10 + Number(ch)) % 97;\n  return mod === 1;\n}\n\nfunction checkInvoice(inv, today = new Date().toISOString().slice(0, 10)) {\n  const problems = [], warnings = [];\n  const t = inv.totals;\n  const near = (a, b, tol = 0.02) => a !== null && b !== null && Math.abs(a - b) <= tol + 1e-9;\n  const money = x => x === null ? '—' : x.toFixed(2);\n\n  for (const [key, label] of [['invoiceNumber', 'invoice number'], ['issueDate', 'issue date'], ['currency', 'currency']])\n    if (!inv[key]) problems.push(`Missing ${label}`);\n  if (!inv.seller?.name) problems.push('Missing seller name');\n  if (!inv.buyer?.name) problems.push('Missing buyer name');\n  if (t.grand === null) problems.push('Missing invoice total');\n  if (t.due === null && t.grand !== null) t.due = Math.round((t.grand - t.prepaid + t.rounding) * 100) / 100; // optional in ZUGFeRD 1.0 BASIC\n\n  if (inv.lines.length && inv.lines.every(l => l.net !== null) && t.lineTotal !== null) {\n    const s = inv.lines.reduce((a, l) => a + (l.net || 0), 0);\n    if (!near(s, t.lineTotal)) problems.push(`Sum of line amounts ${money(s)} ≠ line total ${money(t.lineTotal)}`);\n  }\n  if (t.lineTotal !== null && t.taxBasis !== null && !near(t.lineTotal - t.allowances + t.charges, t.taxBasis))\n    problems.push(`Net total ${money(t.taxBasis)} ≠ lines − allowances + charges`);\n  if (t.taxBasis !== null && t.tax !== null && t.grand !== null && !near(t.taxBasis + t.tax, t.grand))\n    problems.push(`Gross ${money(t.grand)} ≠ net ${money(t.taxBasis)} + VAT ${money(t.tax)}`);\n  if (t.grand !== null && t.due !== null && !near(t.grand - t.prepaid + t.rounding, t.due)) {\n    if (t.prepaid) problems.push(`Amount due ${money(t.due)} ≠ gross ${money(t.grand)} − prepaid ${money(t.prepaid)}`);\n    else warnings.push(`Amount due ${money(t.due)} differs from gross ${money(t.grand)} without a stated prepayment`);\n  }\n  for (const b of inv.taxBreakdown) {\n    if (b.rate !== null && b.basis !== null && b.amount !== null && !near(b.basis * b.rate / 100, b.amount, 0.01 + Math.abs(b.basis) * 0.0005))\n      problems.push(`VAT ${b.rate}% on ${money(b.basis)} should be ${money(b.basis * b.rate / 100)}, invoice says ${money(b.amount)}`);\n  }\n  if (inv.taxBreakdown.length && t.tax !== null) {\n    const s = inv.taxBreakdown.reduce((a, b) => a + (b.amount || 0), 0);\n    if (!near(s, t.tax)) problems.push(`VAT breakdown ${money(s)} ≠ VAT total ${money(t.tax)}`);\n  }\n\n  if (inv.seller && !inv.seller.vatId && !inv.seller.taxNumber) warnings.push('Seller has neither VAT ID nor tax number (required unless VAT-exempt)');\n  if (inv.seller?.vatId && !/^[A-Z]{2}[0-9A-Z+*.]{2,13}$/.test(inv.seller.vatId.replace(/\\s+/g, '')))\n    warnings.push(`Seller VAT ID looks malformed: ${inv.seller.vatId}`);\n  if (inv.seller?.vatId?.startsWith('DE') && !/^DE\\d{9}$/.test(inv.seller.vatId.replace(/\\s+/g, '')))\n    warnings.push(`German VAT ID must be DE + 9 digits: ${inv.seller.vatId}`);\n  if (inv.iban && !ibanValid(inv.iban)) problems.push(`IBAN checksum invalid: ${inv.iban}`);\n  if (inv.typeCode === '381') warnings.push('Credit note (type 381)');\n  if (inv.dueDate && /^\\d{4}-\\d{2}-\\d{2}$/.test(inv.dueDate) && inv.dueDate < today) warnings.push(`Due date ${inv.dueDate} has passed`);\n\n  return { status: problems.length ? 'check' : 'ok', problems, warnings };\n}\n\n// Readable PDF view of a parsed e-invoice (the XML stays the legal original).\n// Pure JavaScript, no libraries: standard Helvetica fonts, WinAnsi encoding (umlauts, €), A4, page breaks.\n\nconst LABELS = {\n  de: {\n    380: 'Rechnung', 381: 'Gutschrift', 384: 'Rechnungskorrektur', 326: 'Teilrechnung', 389: 'Gutschrift (Selbstfakturierung)',\n    from: 'Rechnungssteller', to: 'Rechnungsempfänger', number: 'Rechnungsnummer', date: 'Rechnungsdatum', due: 'Fällig am',\n    delivery: 'Leistungsdatum', contact: 'Kontakt',\n    buyerRef: 'Käuferreferenz / Leitweg-ID', order: 'Bestellnummer', vatId: 'USt-IdNr.', taxNo: 'Steuernummer',\n    pos: 'Pos.', item: 'Bezeichnung', qty: 'Menge', price: 'Einzelpreis', vat: 'USt.', net: 'Netto',\n    lineTotal: 'Summe Positionen', allowances: 'Nachlässe', charges: 'Zuschläge', taxBasis: 'Nettobetrag',\n    taxTotal: 'Umsatzsteuer', grand: 'Gesamtbetrag', prepaid: 'Bereits gezahlt', payable: 'Zahlbetrag',\n    vatOn: 'USt. {rate} % auf {basis}', payment: 'Zahlung', iban: 'IBAN', terms: 'Zahlungsbedingungen',\n    footer: 'Lesbare Darstellung der E-Rechnung {file} ({format}). Rechtlich maßgeblich ist die XML-Datei.',\n    page: 'Seite {n} von {total}', checks: 'Prüfhinweise',\n  },\n  en: {\n    380: 'Invoice', 381: 'Credit note', 384: 'Corrected invoice', 326: 'Partial invoice', 389: 'Self-billed credit note',\n    from: 'Seller', to: 'Buyer', number: 'Invoice number', date: 'Invoice date', due: 'Due date',\n    delivery: 'Delivery date', contact: 'Contact',\n    buyerRef: 'Buyer reference', order: 'Order number', vatId: 'VAT ID', taxNo: 'Tax number',\n    pos: 'Pos.', item: 'Description', qty: 'Qty', price: 'Unit price', vat: 'VAT', net: 'Net',\n    lineTotal: 'Sum of lines', allowances: 'Allowances', charges: 'Charges', taxBasis: 'Net total',\n    taxTotal: 'VAT total', grand: 'Gross total', prepaid: 'Prepaid', payable: 'Amount due',\n    vatOn: 'VAT {rate} % on {basis}', payment: 'Payment', iban: 'IBAN', terms: 'Payment terms',\n    footer: 'Readable view of the e-invoice {file} ({format}). The XML file is the legal original.',\n    page: 'Page {n} of {total}', checks: 'Check results',\n  },\n};\n\n// Helvetica widths (1/1000 em) for ASCII 32..126; other characters use 556.\nconst HELV = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];\nconst HELVB = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];\n\nconst WIN = { '€': 128, '‚': 130, '„': 132, '…': 133, '–': 150, '—': 151, '‘': 145, '’': 146, '“': 147, '”': 148, '•': 149, '™': 153 };\nconst winByte = ch => {\n  const c = ch.charCodeAt(0);\n  if (WIN[ch]) return WIN[ch];\n  if (c >= 32 && c <= 126) return c;\n  if (c >= 160 && c <= 255) return c;\n  return 63; // '?'\n};\nconst textWidth = (s, size, bold) => {\n  let w = 0;\n  for (const ch of s) { const c = ch.charCodeAt(0); w += (c >= 32 && c <= 126 ? (bold ? HELVB : HELV)[c - 32] : 556); }\n  return w * size / 1000;\n};\nconst pdfStr = s => '(' + Array.from(s).map(ch => {\n  const b = winByte(ch);\n  if (b === 40 || b === 41 || b === 92) return '\\\\' + String.fromCharCode(b);\n  return b > 126 ? '\\\\' + b.toString(8).padStart(3, '0') : String.fromCharCode(b);\n}).join('') + ')';\n\nfunction wrap(s, width, size, bold) {\n  const words = String(s || '').replace(/\\s+/g, ' ').trim().split(' ');\n  const lines = [];\n  let cur = '';\n  for (const w of words) {\n    const next = cur ? cur + ' ' + w : w;\n    if (textWidth(next, size, bold) <= width || !cur) cur = next; else { lines.push(cur); cur = w; }\n  }\n  if (cur) lines.push(cur);\n  return lines.length ? lines : [''];\n}\n\nfunction renderInvoicePdf(inv, opts = {}) {\n  const L = LABELS[opts.lang] || LABELS.de;\n  const fmt = (v, cur) => v === null || v === undefined || v === '' ? '' :\n    Number(v).toLocaleString(opts.lang === 'en' ? 'en-GB' : 'de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (cur ? ' ' + cur : '');\n  const qtyFmt = v => v === null || v === undefined ? '' : Number(v).toLocaleString(opts.lang === 'en' ? 'en-GB' : 'de-DE', { maximumFractionDigits: 4 });\n  const cur = inv.currency || '';\n  const W = 595, H = 842, M = 50, RIGHT = W - M;\n  const pages = [];\n  let ops = [], y = 0;\n\n  const text = (s, x, yy, size = 9, bold = false, align = 'left') => {\n    s = String(s ?? '');\n    if (align === 'right') x -= textWidth(s, size, bold);\n    ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x.toFixed(2)} ${yy.toFixed(2)} Td ${pdfStr(s)} Tj ET`);\n  };\n  const hline = (yy, x1 = M, x2 = RIGHT) => ops.push(`${x1} ${yy.toFixed(2)} m ${x2} ${yy.toFixed(2)} l S`);\n  const newPage = () => { if (ops.length) pages.push(ops); ops = ['0.6 w 0.3 0.3 0.3 RG']; y = H - M; };\n  const need = (h, inTable) => { if (y - h < M + 40) { newPage(); if (inTable) tableHeader(); } };\n\n  const COLS = { pos: M, item: M + 28, qty: 370, price: 440, vat: 478, net: RIGHT };\n  const tableHeader = () => {\n    text(L.pos, COLS.pos, y, 8, true); text(L.item, COLS.item, y, 8, true);\n    text(L.qty, COLS.qty, y, 8, true, 'right'); text(L.price, COLS.price, y, 8, true, 'right');\n    text(L.vat, COLS.vat, y, 8, true, 'right'); text(L.net, COLS.net, y, 8, true, 'right');\n    y -= 5; hline(y); y -= 12;\n  };\n\n  newPage();\n  // Title and invoice meta\n  text(L[inv.typeCode] || L[380], M, y, 18, true);\n  text(inv.syntax ? inv.syntax : '', RIGHT, y + 4, 7, false, 'right');\n  y -= 30;\n\n  const party = (title, p, x) => {\n    let yy = y;\n    text(title, x, yy, 7, true); yy -= 12;\n    if (!p) return yy;\n    for (const l of wrap(p.name, 230, 10, true)) { text(l, x, yy, 10, true); yy -= 13; }\n    for (const l of [p.street, [p.postcode, p.city].filter(Boolean).join(' '), p.country].filter(Boolean)) { text(l, x, yy); yy -= 11; }\n    if (p.vatId) { text(`${L.vatId} ${p.vatId}`, x, yy); yy -= 11; }\n    if (p.taxNumber) { text(`${L.taxNo} ${p.taxNumber}`, x, yy); yy -= 11; }\n    const c = [p.contactName, p.phone, p.email].filter(Boolean).join(' · ');\n    if (c && p === inv.seller) for (const l of wrap(`${L.contact}: ${c}`, 240, 8)) { text(l, x, yy, 8); yy -= 10; }\n    return yy;\n  };\n  const yA = party(L.from, inv.seller, M), yB = party(L.to, inv.buyer, 310);\n  y = Math.min(yA, yB) - 14;\n\n  const meta = [[L.number, inv.invoiceNumber], [L.date, inv.issueDate], [L.delivery, inv.deliveryDate], [L.due, inv.dueDate],\n    [L.buyerRef, inv.buyerReference], [L.order, inv.orderReference]].filter(([, v]) => v);\n  for (const [k, v] of meta) { text(k, M, y, 9, true); text(v, M + 150, y); y -= 12; }\n  y -= 12;\n\n  // Line items\n  tableHeader();\n  inv.lines.forEach((l, i) => {\n    const nameLines = wrap(l.name || '', COLS.qty - COLS.item - 45, 9);\n    need(nameLines.length * 11 + 4, true);\n    text(String(i + 1), COLS.pos, y);\n    nameLines.forEach((nl, k) => text(nl, COLS.item, y - k * 11));\n    text(qtyFmt(l.quantity), COLS.qty, y, 9, false, 'right');\n    text(fmt(l.unitPrice), COLS.price, y, 9, false, 'right');\n    text(l.taxRate === null || l.taxRate === undefined ? '' : l.taxRate + ' %', COLS.vat, y, 9, false, 'right');\n    text(fmt(l.net), COLS.net, y, 9, false, 'right');\n    y -= nameLines.length * 11 + 4;\n  });\n  y += 4; hline(y); y -= 16;\n\n  // Totals\n  const t = inv.totals || {};\n  const rows = [[L.lineTotal, t.lineTotal], [L.allowances, t.allowances || null], [L.charges, t.charges || null],\n    [L.taxBasis, t.taxBasis],\n    ...(inv.taxBreakdown || []).map(b => [L.vatOn.replace('{rate}', b.rate ?? '').replace('{basis}', fmt(b.basis)), b.amount]),\n    [L.taxTotal, t.tax], [L.grand, t.grand, true], [L.prepaid, t.prepaid || null], [L.payable, t.due, true]];\n  for (const [k, v, bold] of rows) {\n    if (v === null || v === undefined) continue;\n    need(14);\n    text(k, 330, y, 9, !!bold); text(fmt(v, cur), RIGHT, y, 9, !!bold, 'right'); y -= 13;\n  }\n  y -= 10;\n\n  // Payment and check results\n  const block = (title, lines) => {\n    lines = lines.filter(Boolean);\n    if (!lines.length) return;\n    need(16 + lines.length * 11);\n    text(title, M, y, 9, true); y -= 12;\n    for (const l of lines) for (const w of wrap(l, RIGHT - M, 9)) { need(11); text(w, M, y); y -= 11; }\n    y -= 8;\n  };\n  block(L.payment, [inv.iban && `${L.iban} ${inv.iban}`, inv.paymentTerms && `${L.terms}: ${inv.paymentTerms}`]);\n\n  pages.push(ops);\n\n  // Assemble the PDF file\n  const footer = L.footer.replace('{file}', opts.fileName || '').replace('{format}', [inv.syntax, inv.profile].filter(Boolean).join(', '));\n  const objs = [];\n  const add = s => { objs.push(s); return objs.length; };\n  const catalog = add(null), pagesObj = add(null);\n  const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');\n  const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');\n  const kids = [];\n  pages.forEach((p, i) => {\n    const foot = [...wrap(footer, 400, 6.5).slice(0, 2).map((fl, k) => `BT /F1 6.5 Tf ${M} ${30 - k * 8} Td ${pdfStr(fl)} Tj ET`),\n      `BT /F1 6.5 Tf ${(RIGHT - textWidth(L.page.replace('{n}', i + 1).replace('{total}', pages.length), 6.5)).toFixed(2)} 30 Td ${pdfStr(L.page.replace('{n}', i + 1).replace('{total}', pages.length))} Tj ET`];\n    const content = [...p, ...foot].join('\\n');\n    const bytes = Buffer.from(Array.from(content).map(ch => ch.charCodeAt(0) & 255));\n    const c = add({ stream: bytes });\n    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${c} 0 R >>`));\n  });\n  objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`;\n  objs[pagesObj - 1] = `<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`;\n\n  const chunks = [Buffer.from('%PDF-1.4\\n%\\xE2\\xE3\\xCF\\xD3\\n', 'latin1')];\n  let offset = chunks[0].length;\n  const offsets = [];\n  objs.forEach((o, i) => {\n    offsets.push(offset);\n    let buf;\n    if (o && o.stream) buf = Buffer.concat([Buffer.from(`${i + 1} 0 obj\\n<< /Length ${o.stream.length} >>\\nstream\\n`, 'latin1'), o.stream, Buffer.from('\\nendstream\\nendobj\\n', 'latin1')]);\n    else buf = Buffer.from(`${i + 1} 0 obj\\n${o}\\nendobj\\n`, 'latin1');\n    chunks.push(buf); offset += buf.length;\n  });\n  const xref = `xref\\n0 ${objs.length + 1}\\n0000000000 65535 f \\n` + offsets.map(o => String(o).padStart(10, '0') + ' 00000 n \\n').join('') +\n    `trailer\\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R >>\\nstartxref\\n${offset}\\n%%EOF\\n`;\n  chunks.push(Buffer.from(xref, 'latin1'));\n  return Buffer.concat(chunks);\n}\n\n// Input: either the e-invoice XML, or an invoice read by the AI model from a PDF without XML.\nconst today = $now.toFormat('yyyy-MM-dd');\nconst lang = $('Settings').first().json.invoiceViewLanguage || 'de';\nconst clean = s => String(s || '').replace(/\\s+/g, '').toUpperCase();\nreturn $input.all().map((item, i) => {\n  const m = item.json;\n  let inv = null, res;\n  try {\n    inv = m.aiInvoice || parseInvoice(m.xml);\n    res = checkInvoice(inv, today);\n  } catch (e) {\n    res = { status: 'check', problems: ['Could not read the e-invoice XML: ' + e.message], warnings: [] };\n  }\n  if (m.aiInvoice) {\n    res.status = 'check';\n    res.problems.unshift('No e-invoice data in this PDF: fields were read by the AI model, please verify');\n  }\n  const t = inv ? inv.totals : {};\n  // Files for the emails: the original, plus a readable PDF when the original is a bare XML file\n  const binary = {};\n  if (item.binary?.data) binary.original = item.binary.data;\n  if (inv && !m.aiInvoice && /\\.xml$/i.test(m.fileName)) {\n    const pdf = renderInvoicePdf(inv, { lang, fileName: m.fileName });\n    binary.view = { data: pdf.toString('base64'), mimeType: 'application/pdf', fileExtension: 'pdf',\n                    fileName: m.fileName.replace(/\\.xml$/i, '') + (lang === 'de' ? '_lesbar.pdf' : '_readable.pdf') };\n  }\n  return {\n    pairedItem: i,\n    binary,\n    json: {\n      dedupeKey: inv && inv.invoiceNumber ? clean(inv.seller?.vatId || inv.seller?.taxNumber || inv.seller?.name) + '|' + clean(inv.invoiceNumber) : 'FILE|' + m.fileName,\n      status: res.status,\n      source: m.aiInvoice ? 'pdf-ai' : 'e-invoice',\n      format: inv ? [inv.syntax, inv.profile].filter(Boolean).join(' · ') : '',\n      invoiceNumber: inv?.invoiceNumber || '',\n      invoiceDate: inv?.issueDate || '',\n      dueDate: inv?.dueDate || '',\n      sellerName: inv?.seller?.name || '',\n      sellerVatId: inv?.seller?.vatId || inv?.seller?.taxNumber || '',\n      buyerName: inv?.buyer?.name || '',\n      buyerReference: inv?.buyerReference || '',\n      currency: inv?.currency || '',\n      netAmount: t.taxBasis ?? null,\n      vatAmount: t.tax ?? null,\n      grossAmount: t.grand ?? null,\n      amountDue: t.due ?? null,\n      iban: inv?.iban || '',\n      lineCount: inv ? inv.lines.length : 0,\n      problems: res.problems.join('\\n'),\n      warnings: res.warnings.join('\\n'),\n      fileName: m.fileName,\n      emailFrom: m.emailFrom,\n      emailSubject: m.emailSubject,\n      receivedAt: m.receivedAt,\n    },\n  };\n});"
+    "jsCode": "// Parse an EN 16931 e-invoice (CII: ZUGFeRD 2.x / Factur-X / XRechnung-CII, ZUGFeRD 1.0, UBL: XRechnung-UBL / Peppol)\n// into one flat structure and run plausibility checks. Pure JavaScript, no external services.\n\n// --- Tiny XML reader: namespace prefixes are dropped, attributes kept ---\nfunction parseXml(xml) {\n  const root = { name: '#root', attrs: {}, children: [], text: '' };\n  const stack = [root];\n  const ent = s => s.replace(/&(lt|gt|amp|quot|apos|#\\d+|#x[0-9a-f]+);/gi, (m, e) =>\n    e[0] === '#' ? String.fromCodePoint(e[1].toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10))\n      : { lt: '<', gt: '>', amp: '&', quot: '\"', apos: \"'\" }[e.toLowerCase()]);\n  const re = /<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|<!--[\\s\\S]*?-->|<\\?[\\s\\S]*?\\?>|<!DOCTYPE[^>]*>|<(\\/?)([\\w.:-]+)((?:\\s+[\\w.:-]+\\s*=\\s*(?:\"[^\"]*\"|'[^']*'))*)\\s*(\\/?)>|([^<]+)/g;\n  let m;\n  while ((m = re.exec(xml))) {\n    const top = stack[stack.length - 1];\n    if (m[1] !== undefined) top.text += m[1];\n    else if (m[6] !== undefined) top.text += ent(m[6]);\n    else if (m[3]) {\n      const name = m[3].replace(/^[\\w.-]+:/, '');\n      if (m[2]) {\n        if (stack.length < 2 || top.name !== name) throw new Error(`malformed XML: </${name}> does not close <${top.name}>`);\n        stack.pop();\n        continue;\n      }\n      const attrs = {};\n      m[4].replace(/([\\w.:-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')/g, (_, k, a, b) => { attrs[k.replace(/^[\\w.-]+:/, '')] = ent(a ?? b); });\n      const node = { name, attrs, children: [], text: '' };\n      top.children.push(node);\n      if (!m[5]) stack.push(node);\n    }\n  }\n  return root.children[0];\n}\n\n// Path lookup: 'A/B|C/D' — '|' gives alternatives for one step (ZUGFeRD 1.0 vs 2.x names).\nconst all = (node, path) => path.split('/').reduce((nodes, step) => {\n  const names = step.split('|');\n  return nodes.flatMap(n => n.children.filter(c => names.includes(c.name)));\n}, node ? [node] : []);\nconst one = (node, path) => all(node, path)[0];\nconst txt = (node, path) => { const n = path ? one(node, path) : node; return n ? n.text.trim() : ''; };\nconst num = (node, path) => { const t = txt(node, path); return t === '' ? null : Number(t); };\nconst cdate = s => /^\\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s;\n\nfunction normalizeCII(doc) {\n  const v1 = doc.name === 'CrossIndustryDocument' || !!one(doc, 'HeaderExchangedDocument'); // incl. 2014 ZUGFeRD drafts with <Invoice> root\n  const hdr = one(doc, v1 ? 'HeaderExchangedDocument' : 'ExchangedDocument');\n  const tx = one(doc, 'SupplyChainTradeTransaction|SpecifiedSupplyChainTradeTransaction');\n  const agr = one(tx, 'ApplicableHeaderTradeAgreement|ApplicableSupplyChainTradeAgreement');\n  const set = one(tx, 'ApplicableHeaderTradeSettlement|ApplicableSupplyChainTradeSettlement');\n  const sum = one(set, 'SpecifiedTradeSettlementHeaderMonetarySummation|SpecifiedTradeSettlementMonetarySummation');\n  const party = p => p && {\n    name: txt(p, 'Name'),\n    vatId: (all(p, 'SpecifiedTaxRegistration/ID').find(n => n.attrs.schemeID === 'VA') || {}).text?.trim() || '',\n    taxNumber: (all(p, 'SpecifiedTaxRegistration/ID').find(n => n.attrs.schemeID === 'FC') || {}).text?.trim() || '',\n    street: txt(p, 'PostalTradeAddress/LineOne'),\n    postcode: txt(p, 'PostalTradeAddress/PostcodeCode'),\n    city: txt(p, 'PostalTradeAddress/CityName'),\n    country: txt(p, 'PostalTradeAddress/CountryID'),\n    contactName: txt(p, 'DefinedTradeContact/PersonName'),\n    phone: txt(p, 'DefinedTradeContact/TelephoneUniversalCommunication/CompleteNumber'),\n    email: txt(p, 'DefinedTradeContact/EmailURIUniversalCommunication/URIID') || txt(p, 'URIUniversalCommunication/URIID'),\n  };\n  // TaxTotalAmount can appear twice (invoice currency + accounting currency)\n  const currency = txt(set, 'InvoiceCurrencyCode') || (one(sum, 'GrandTotalAmount') || { attrs: {} }).attrs.currencyID || '';\n  const taxTotals = all(sum, 'TaxTotalAmount');\n  const taxTotal = taxTotals.find(n => !n.attrs.currencyID || n.attrs.currencyID === currency) || taxTotals[0];\n  return {\n    syntax: v1 ? 'ZUGFeRD 1.0 (CII)' : 'CII',\n    profile: txt(doc, (v1 ? 'SpecifiedExchangedDocumentContext' : 'ExchangedDocumentContext') + '/GuidelineSpecifiedDocumentContextParameter/ID'),\n    invoiceNumber: txt(hdr, 'ID'),\n    typeCode: txt(hdr, 'TypeCode'),\n    issueDate: cdate(txt(hdr, 'IssueDateTime/DateTimeString') || txt(hdr, 'IssueDateTime')),\n    dueDate: cdate(txt(set, 'SpecifiedTradePaymentTerms/DueDateDateTime/DateTimeString')),\n    deliveryDate: cdate(txt(one(tx, 'ApplicableHeaderTradeDelivery|ApplicableSupplyChainTradeDelivery'), 'ActualDeliverySupplyChainEvent/OccurrenceDateTime/DateTimeString')),\n    paymentTerms: txt(set, 'SpecifiedTradePaymentTerms/Description'),\n    currency,\n    buyerReference: txt(agr, 'BuyerReference'),\n    orderReference: txt(agr, 'BuyerOrderReferencedDocument/IssuerAssignedID'),\n    seller: party(one(agr, 'SellerTradeParty')),\n    buyer: party(one(agr, 'BuyerTradeParty')),\n    iban: txt(set, 'SpecifiedTradeSettlementPaymentMeans/PayeePartyCreditorFinancialAccount/IBANID'),\n    totals: {\n      lineTotal: num(sum, 'LineTotalAmount'),\n      allowances: num(sum, 'AllowanceTotalAmount') || 0,\n      charges: num(sum, 'ChargeTotalAmount') || 0,\n      taxBasis: num(sum, 'TaxBasisTotalAmount'),\n      tax: taxTotal ? Number(taxTotal.text.trim()) : null,\n      grand: num(sum, 'GrandTotalAmount'),\n      prepaid: num(sum, 'TotalPrepaidAmount') || 0,\n      rounding: num(sum, 'RoundingAmount') || 0,\n      due: num(sum, 'DuePayableAmount'),\n    },\n    taxBreakdown: all(set, 'ApplicableTradeTax').map(t => ({\n      category: txt(t, 'CategoryCode'),\n      rate: num(t, 'RateApplicablePercent|ApplicablePercent'),\n      basis: num(t, 'BasisAmount'),\n      amount: num(t, 'CalculatedAmount'),\n    })),\n    lines: all(tx, 'IncludedSupplyChainTradeLineItem').map(l => ({\n      name: txt(l, 'SpecifiedTradeProduct/Name'),\n      quantity: num(l, 'SpecifiedLineTradeDelivery|SpecifiedSupplyChainTradeDelivery/BilledQuantity'),\n      unitPrice: num(l, 'SpecifiedLineTradeAgreement|SpecifiedSupplyChainTradeAgreement/NetPriceProductTradePrice/ChargeAmount'),\n      net: num(l, 'SpecifiedLineTradeSettlement|SpecifiedSupplyChainTradeSettlement/SpecifiedTradeSettlementLineMonetarySummation|SpecifiedTradeSettlementMonetarySummation/LineTotalAmount'),\n      taxRate: num(l, 'SpecifiedLineTradeSettlement|SpecifiedSupplyChainTradeSettlement/ApplicableTradeTax/RateApplicablePercent|ApplicablePercent'),\n    })),\n  };\n}\n\nfunction normalizeUBL(doc) {\n  const credit = doc.name === 'CreditNote';\n  const party = p => p && {\n    name: txt(p, 'PartyLegalEntity/RegistrationName') || txt(p, 'PartyName/Name'),\n    vatId: (all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') === 'VAT') && txt(all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') === 'VAT'), 'CompanyID')) || '',\n    taxNumber: (all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') !== 'VAT') && txt(all(p, 'PartyTaxScheme').find(s => txt(s, 'TaxScheme/ID') !== 'VAT'), 'CompanyID')) || '',\n    street: txt(p, 'PostalAddress/StreetName'),\n    postcode: txt(p, 'PostalAddress/PostalZone'),\n    city: txt(p, 'PostalAddress/CityName'),\n    country: txt(p, 'PostalAddress/Country/IdentificationCode'),\n    contactName: txt(p, 'Contact/Name'),\n    phone: txt(p, 'Contact/Telephone'),\n    email: txt(p, 'Contact/ElectronicMail') || txt(p, 'EndpointID'),\n  };\n  const currency = txt(doc, 'DocumentCurrencyCode');\n  const taxTotals = all(doc, 'TaxTotal');\n  const mainTax = taxTotals.find(t => all(t, 'TaxSubtotal').length) || taxTotals[0];\n  const sum = one(doc, 'LegalMonetaryTotal');\n  return {\n    syntax: 'UBL',\n    profile: txt(doc, 'CustomizationID'),\n    invoiceNumber: txt(doc, 'ID'),\n    typeCode: txt(doc, credit ? 'CreditNoteTypeCode' : 'InvoiceTypeCode'),\n    issueDate: txt(doc, 'IssueDate'),\n    dueDate: txt(doc, 'DueDate') || txt(doc, 'PaymentMeans/PaymentDueDate'),\n    deliveryDate: txt(doc, 'Delivery/ActualDeliveryDate'),\n    paymentTerms: txt(doc, 'PaymentTerms/Note'),\n    currency,\n    buyerReference: txt(doc, 'BuyerReference'),\n    orderReference: txt(doc, 'OrderReference/ID'),\n    seller: party(one(doc, 'AccountingSupplierParty/Party')),\n    buyer: party(one(doc, 'AccountingCustomerParty/Party')),\n    iban: txt(doc, 'PaymentMeans/PayeeFinancialAccount/ID'),\n    totals: {\n      lineTotal: num(sum, 'LineExtensionAmount'),\n      allowances: num(sum, 'AllowanceTotalAmount') || 0,\n      charges: num(sum, 'ChargeTotalAmount') || 0,\n      taxBasis: num(sum, 'TaxExclusiveAmount'),\n      tax: mainTax ? num(mainTax, 'TaxAmount') : null,\n      grand: num(sum, 'TaxInclusiveAmount'),\n      prepaid: num(sum, 'PrepaidAmount') || 0,\n      rounding: num(sum, 'PayableRoundingAmount') || 0,\n      due: num(sum, 'PayableAmount'),\n    },\n    taxBreakdown: mainTax ? all(mainTax, 'TaxSubtotal').map(t => ({\n      category: txt(t, 'TaxCategory/ID'),\n      rate: num(t, 'TaxCategory/Percent'),\n      basis: num(t, 'TaxableAmount'),\n      amount: num(t, 'TaxAmount'),\n    })) : [],\n    lines: all(doc, credit ? 'CreditNoteLine' : 'InvoiceLine').map(l => ({\n      name: txt(l, 'Item/Name'),\n      quantity: num(l, credit ? 'CreditedQuantity' : 'InvoicedQuantity'),\n      unitPrice: num(l, 'Price/PriceAmount'),\n      net: num(l, 'LineExtensionAmount'),\n      taxRate: num(l, 'Item/ClassifiedTaxCategory/Percent'),\n    })),\n  };\n}\n\nfunction parseInvoice(xml) {\n  const doc = parseXml(xml);\n  if (!doc) throw new Error('empty XML');\n  if (doc.name === 'CrossIndustryInvoice' || doc.name === 'CrossIndustryDocument') return normalizeCII(doc);\n  if (one(doc, 'HeaderExchangedDocument')) return normalizeCII(doc);\n  if (doc.name === 'Invoice' || doc.name === 'CreditNote') return normalizeUBL(doc);\n  throw new Error('not an EN 16931 invoice: <' + doc.name + '>');\n}\n\n// --- Plausibility checks (a subset of the EN 16931 business rules, not a full Schematron validation) ---\nfunction ibanValid(iban) {\n  const s = iban.replace(/\\s+/g, '').toUpperCase();\n  if (!/^[A-Z]{2}\\d{2}[A-Z0-9]{10,30}$/.test(s)) return false;\n  const r = (s.slice(4) + s.slice(0, 4)).replace(/[A-Z]/g, c => String(c.charCodeAt(0) - 55));\n  let mod = 0;\n  for (const ch of r) mod = (mod * 10 + Number(ch)) % 97;\n  return mod === 1;\n}\n\nfunction checkInvoice(inv, today = new Date().toISOString().slice(0, 10)) {\n  const problems = [], warnings = [];\n  const t = inv.totals;\n  const near = (a, b, tol = 0.02) => a !== null && b !== null && Math.abs(a - b) <= tol + 1e-9;\n  const money = x => x === null ? '—' : x.toFixed(2);\n\n  for (const [key, label] of [['invoiceNumber', 'invoice number'], ['issueDate', 'issue date'], ['currency', 'currency']])\n    if (!inv[key]) problems.push(`Missing ${label}`);\n  if (!inv.seller?.name) problems.push('Missing seller name');\n  if (!inv.buyer?.name) problems.push('Missing buyer name');\n  if (t.grand === null) problems.push('Missing invoice total');\n  if (t.due === null && t.grand !== null) t.due = Math.round((t.grand - t.prepaid + t.rounding) * 100) / 100; // optional in ZUGFeRD 1.0 BASIC\n\n  if (inv.lines.length && inv.lines.every(l => l.net !== null) && t.lineTotal !== null) {\n    const s = inv.lines.reduce((a, l) => a + (l.net || 0), 0);\n    if (!near(s, t.lineTotal)) problems.push(`Sum of line amounts ${money(s)} ≠ line total ${money(t.lineTotal)}`);\n  }\n  if (t.lineTotal !== null && t.taxBasis !== null && !near(t.lineTotal - t.allowances + t.charges, t.taxBasis))\n    problems.push(`Net total ${money(t.taxBasis)} ≠ lines − allowances + charges`);\n  if (t.taxBasis !== null && t.tax !== null && t.grand !== null && !near(t.taxBasis + t.tax, t.grand))\n    problems.push(`Gross ${money(t.grand)} ≠ net ${money(t.taxBasis)} + VAT ${money(t.tax)}`);\n  if (t.grand !== null && t.due !== null && !near(t.grand - t.prepaid + t.rounding, t.due)) {\n    if (t.prepaid) problems.push(`Amount due ${money(t.due)} ≠ gross ${money(t.grand)} − prepaid ${money(t.prepaid)}`);\n    else problems.push(`Amount due ${money(t.due)} differs from gross ${money(t.grand)} without a stated prepayment — e.g. undeclared prepayment, third-party amounts or a correction; check before paying`);\n  }\n  if (t.allowances < 0 || t.charges < 0 || t.prepaid < 0)\n    problems.push('Allowances, charges and prepaid amounts must not be negative');\n  if (Math.abs(t.rounding || 0) > 1) problems.push(`Implausible rounding amount ${money(t.rounding)}`);\n  for (const b of inv.taxBreakdown) {\n    if (['E', 'AE', 'K', 'G', 'O'].includes(b.category) && b.amount)\n      problems.push(`VAT category ${b.category} must have 0.00 VAT, invoice says ${money(b.amount)}`);\n    if (b.rate !== null && b.basis !== null && b.amount !== null && !near(b.basis * b.rate / 100, b.amount, 0.01 + Math.abs(b.basis) * 0.0005))\n      problems.push(`VAT ${b.rate}% on ${money(b.basis)} should be ${money(b.basis * b.rate / 100)}, invoice says ${money(b.amount)}`);\n  }\n  if (inv.taxBreakdown.length && t.tax !== null) {\n    const s = inv.taxBreakdown.reduce((a, b) => a + (b.amount || 0), 0);\n    if (!near(s, t.tax)) problems.push(`VAT breakdown ${money(s)} ≠ VAT total ${money(t.tax)}`);\n  }\n\n  if (inv.seller && !inv.seller.vatId && !inv.seller.taxNumber) warnings.push('Seller has neither VAT ID nor tax number (required unless VAT-exempt)');\n  if (inv.seller?.vatId && !/^[A-Z]{2}[0-9A-Z+*.]{2,13}$/.test(inv.seller.vatId.replace(/\\s+/g, '')))\n    warnings.push(`Seller VAT ID looks malformed: ${inv.seller.vatId}`);\n  if (inv.seller?.vatId?.startsWith('DE') && !/^DE\\d{9}$/.test(inv.seller.vatId.replace(/\\s+/g, '')))\n    warnings.push(`German VAT ID must be DE + 9 digits: ${inv.seller.vatId}`);\n  if (inv.iban && !ibanValid(inv.iban)) problems.push(`IBAN checksum invalid: ${inv.iban}`);\n  if (inv.typeCode === '381') warnings.push('Credit note (type 381)');\n  if (inv.dueDate && /^\\d{4}-\\d{2}-\\d{2}$/.test(inv.dueDate) && inv.dueDate < today) warnings.push(`Due date ${inv.dueDate} has passed`);\n\n  return { status: problems.length ? 'check' : 'ok', problems, warnings };\n}\n\n// Readable PDF view of a parsed e-invoice (the XML stays the legal original).\n// Pure JavaScript, no libraries: standard Helvetica fonts, WinAnsi encoding (umlauts, €), A4, page breaks.\n\nconst LABELS = {\n  de: {\n    380: 'Rechnung', 381: 'Gutschrift', 384: 'Rechnungskorrektur', 326: 'Teilrechnung', 389: 'Gutschrift (Selbstfakturierung)',\n    from: 'Rechnungssteller', to: 'Rechnungsempfänger', number: 'Rechnungsnummer', date: 'Rechnungsdatum', due: 'Fällig am',\n    delivery: 'Leistungsdatum', contact: 'Kontakt',\n    buyerRef: 'Käuferreferenz / Leitweg-ID', order: 'Bestellnummer', vatId: 'USt-IdNr.', taxNo: 'Steuernummer',\n    pos: 'Pos.', item: 'Bezeichnung', qty: 'Menge', price: 'Einzelpreis', vat: 'USt.', net: 'Netto',\n    lineTotal: 'Summe Positionen', allowances: 'Nachlässe', charges: 'Zuschläge', taxBasis: 'Nettobetrag',\n    taxTotal: 'Umsatzsteuer', grand: 'Gesamtbetrag', prepaid: 'Bereits gezahlt', payable: 'Zahlbetrag',\n    vatOn: 'USt. {rate} % auf {basis}', payment: 'Zahlung', iban: 'IBAN', terms: 'Zahlungsbedingungen',\n    footer: 'Lesbare Darstellung der E-Rechnung {file} ({format}). Rechtlich maßgeblich ist die XML-Datei.',\n    page: 'Seite {n} von {total}', checks: 'Prüfhinweise',\n  },\n  en: {\n    380: 'Invoice', 381: 'Credit note', 384: 'Corrected invoice', 326: 'Partial invoice', 389: 'Self-billed credit note',\n    from: 'Seller', to: 'Buyer', number: 'Invoice number', date: 'Invoice date', due: 'Due date',\n    delivery: 'Delivery date', contact: 'Contact',\n    buyerRef: 'Buyer reference', order: 'Order number', vatId: 'VAT ID', taxNo: 'Tax number',\n    pos: 'Pos.', item: 'Description', qty: 'Qty', price: 'Unit price', vat: 'VAT', net: 'Net',\n    lineTotal: 'Sum of lines', allowances: 'Allowances', charges: 'Charges', taxBasis: 'Net total',\n    taxTotal: 'VAT total', grand: 'Gross total', prepaid: 'Prepaid', payable: 'Amount due',\n    vatOn: 'VAT {rate} % on {basis}', payment: 'Payment', iban: 'IBAN', terms: 'Payment terms',\n    footer: 'Readable view of the e-invoice {file} ({format}). The XML file is the legal original.',\n    page: 'Page {n} of {total}', checks: 'Check results',\n  },\n};\n\n// Helvetica widths (1/1000 em) for ASCII 32..126; other characters use 556.\nconst HELV = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];\nconst HELVB = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];\n\nconst WIN = { '€': 128, '‚': 130, '„': 132, '…': 133, '–': 150, '—': 151, '‘': 145, '’': 146, '“': 147, '”': 148, '•': 149, '™': 153 };\nconst winByte = ch => {\n  const c = ch.charCodeAt(0);\n  if (WIN[ch]) return WIN[ch];\n  if (c >= 32 && c <= 126) return c;\n  if (c >= 160 && c <= 255) return c;\n  return 63; // '?'\n};\nconst textWidth = (s, size, bold) => {\n  let w = 0;\n  for (const ch of s) { const c = ch.charCodeAt(0); w += (c >= 32 && c <= 126 ? (bold ? HELVB : HELV)[c - 32] : 556); }\n  return w * size / 1000;\n};\nconst pdfStr = s => '(' + Array.from(s).map(ch => {\n  const b = winByte(ch);\n  if (b === 40 || b === 41 || b === 92) return '\\\\' + String.fromCharCode(b);\n  return b > 126 ? '\\\\' + b.toString(8).padStart(3, '0') : String.fromCharCode(b);\n}).join('') + ')';\n\nfunction wrap(s, width, size, bold) {\n  const words = String(s || '').replace(/\\s+/g, ' ').trim().split(' ');\n  const lines = [];\n  let cur = '';\n  for (const w of words) {\n    const next = cur ? cur + ' ' + w : w;\n    if (textWidth(next, size, bold) <= width || !cur) cur = next; else { lines.push(cur); cur = w; }\n  }\n  if (cur) lines.push(cur);\n  return lines.length ? lines : [''];\n}\n\nfunction renderInvoicePdf(inv, opts = {}) {\n  const L = LABELS[opts.lang] || LABELS.de;\n  const fmt = (v, cur) => v === null || v === undefined || v === '' ? '' :\n    Number(v).toLocaleString(opts.lang === 'en' ? 'en-GB' : 'de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (cur ? ' ' + cur : '');\n  const qtyFmt = v => v === null || v === undefined ? '' : Number(v).toLocaleString(opts.lang === 'en' ? 'en-GB' : 'de-DE', { maximumFractionDigits: 4 });\n  const cur = inv.currency || '';\n  const W = 595, H = 842, M = 50, RIGHT = W - M;\n  const pages = [];\n  let ops = [], y = 0;\n\n  const text = (s, x, yy, size = 9, bold = false, align = 'left') => {\n    s = String(s ?? '');\n    if (align === 'right') x -= textWidth(s, size, bold);\n    ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x.toFixed(2)} ${yy.toFixed(2)} Td ${pdfStr(s)} Tj ET`);\n  };\n  const hline = (yy, x1 = M, x2 = RIGHT) => ops.push(`${x1} ${yy.toFixed(2)} m ${x2} ${yy.toFixed(2)} l S`);\n  const newPage = () => { if (ops.length) pages.push(ops); ops = ['0.6 w 0.3 0.3 0.3 RG']; y = H - M; };\n  const need = (h, inTable) => { if (y - h < M + 40) { newPage(); if (inTable) tableHeader(); } };\n\n  const COLS = { pos: M, item: M + 28, qty: 370, price: 440, vat: 478, net: RIGHT };\n  const tableHeader = () => {\n    text(L.pos, COLS.pos, y, 8, true); text(L.item, COLS.item, y, 8, true);\n    text(L.qty, COLS.qty, y, 8, true, 'right'); text(L.price, COLS.price, y, 8, true, 'right');\n    text(L.vat, COLS.vat, y, 8, true, 'right'); text(L.net, COLS.net, y, 8, true, 'right');\n    y -= 5; hline(y); y -= 12;\n  };\n\n  newPage();\n  // Title and invoice meta\n  text(L[inv.typeCode] || L[380], M, y, 18, true);\n  text(inv.syntax ? inv.syntax : '', RIGHT, y + 4, 7, false, 'right');\n  y -= 30;\n\n  const party = (title, p, x) => {\n    let yy = y;\n    text(title, x, yy, 7, true); yy -= 12;\n    if (!p) return yy;\n    for (const l of wrap(p.name, 230, 10, true)) { text(l, x, yy, 10, true); yy -= 13; }\n    for (const l of [p.street, [p.postcode, p.city].filter(Boolean).join(' '), p.country].filter(Boolean)) { text(l, x, yy); yy -= 11; }\n    if (p.vatId) { text(`${L.vatId} ${p.vatId}`, x, yy); yy -= 11; }\n    if (p.taxNumber) { text(`${L.taxNo} ${p.taxNumber}`, x, yy); yy -= 11; }\n    const c = [p.contactName, p.phone, p.email].filter(Boolean).join(' · ');\n    if (c && p === inv.seller) for (const l of wrap(`${L.contact}: ${c}`, 240, 8)) { text(l, x, yy, 8); yy -= 10; }\n    return yy;\n  };\n  const yA = party(L.from, inv.seller, M), yB = party(L.to, inv.buyer, 310);\n  y = Math.min(yA, yB) - 14;\n\n  const meta = [[L.number, inv.invoiceNumber], [L.date, inv.issueDate], [L.delivery, inv.deliveryDate], [L.due, inv.dueDate],\n    [L.buyerRef, inv.buyerReference], [L.order, inv.orderReference]].filter(([, v]) => v);\n  for (const [k, v] of meta) { text(k, M, y, 9, true); text(v, M + 150, y); y -= 12; }\n  y -= 12;\n\n  // Line items\n  tableHeader();\n  inv.lines.forEach((l, i) => {\n    const nameLines = wrap(l.name || '', COLS.qty - COLS.item - 45, 9);\n    need(nameLines.length * 11 + 4, true);\n    text(String(i + 1), COLS.pos, y);\n    nameLines.forEach((nl, k) => text(nl, COLS.item, y - k * 11));\n    text(qtyFmt(l.quantity), COLS.qty, y, 9, false, 'right');\n    text(fmt(l.unitPrice), COLS.price, y, 9, false, 'right');\n    text(l.taxRate === null || l.taxRate === undefined ? '' : l.taxRate + ' %', COLS.vat, y, 9, false, 'right');\n    text(fmt(l.net), COLS.net, y, 9, false, 'right');\n    y -= nameLines.length * 11 + 4;\n  });\n  y += 4; hline(y); y -= 16;\n\n  // Totals\n  const t = inv.totals || {};\n  const rows = [[L.lineTotal, t.lineTotal], [L.allowances, t.allowances || null], [L.charges, t.charges || null],\n    [L.taxBasis, t.taxBasis],\n    ...(inv.taxBreakdown || []).map(b => [L.vatOn.replace('{rate}', b.rate ?? '').replace('{basis}', fmt(b.basis)), b.amount]),\n    [L.taxTotal, t.tax], [L.grand, t.grand, true], [L.prepaid, t.prepaid || null], [L.payable, t.due, true]];\n  for (const [k, v, bold] of rows) {\n    if (v === null || v === undefined) continue;\n    need(14);\n    text(k, 330, y, 9, !!bold); text(fmt(v, cur), RIGHT, y, 9, !!bold, 'right'); y -= 13;\n  }\n  y -= 10;\n\n  // Payment and check results\n  const block = (title, lines) => {\n    lines = lines.filter(Boolean);\n    if (!lines.length) return;\n    need(16 + lines.length * 11);\n    text(title, M, y, 9, true); y -= 12;\n    for (const l of lines) for (const w of wrap(l, RIGHT - M, 9)) { need(11); text(w, M, y); y -= 11; }\n    y -= 8;\n  };\n  block(L.payment, [inv.iban && `${L.iban} ${inv.iban}`, inv.paymentTerms && `${L.terms}: ${inv.paymentTerms}`]);\n\n  pages.push(ops);\n\n  // Assemble the PDF file\n  const footer = L.footer.replace('{file}', opts.fileName || '').replace('{format}', [inv.syntax, inv.profile].filter(Boolean).join(', '));\n  const objs = [];\n  const add = s => { objs.push(s); return objs.length; };\n  const catalog = add(null), pagesObj = add(null);\n  const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');\n  const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');\n  const kids = [];\n  pages.forEach((p, i) => {\n    const foot = [...wrap(footer, 400, 6.5).slice(0, 2).map((fl, k) => `BT /F1 6.5 Tf ${M} ${30 - k * 8} Td ${pdfStr(fl)} Tj ET`),\n      `BT /F1 6.5 Tf ${(RIGHT - textWidth(L.page.replace('{n}', i + 1).replace('{total}', pages.length), 6.5)).toFixed(2)} 30 Td ${pdfStr(L.page.replace('{n}', i + 1).replace('{total}', pages.length))} Tj ET`];\n    const content = [...p, ...foot].join('\\n');\n    const bytes = Buffer.from(Array.from(content).map(ch => ch.charCodeAt(0) & 255));\n    const c = add({ stream: bytes });\n    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${c} 0 R >>`));\n  });\n  objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`;\n  objs[pagesObj - 1] = `<< /Type /Pages /Kids [${kids.map(k => k + ' 0 R').join(' ')}] /Count ${kids.length} >>`;\n\n  const chunks = [Buffer.from('%PDF-1.4\\n%\\xE2\\xE3\\xCF\\xD3\\n', 'latin1')];\n  let offset = chunks[0].length;\n  const offsets = [];\n  objs.forEach((o, i) => {\n    offsets.push(offset);\n    let buf;\n    if (o && o.stream) buf = Buffer.concat([Buffer.from(`${i + 1} 0 obj\\n<< /Length ${o.stream.length} >>\\nstream\\n`, 'latin1'), o.stream, Buffer.from('\\nendstream\\nendobj\\n', 'latin1')]);\n    else buf = Buffer.from(`${i + 1} 0 obj\\n${o}\\nendobj\\n`, 'latin1');\n    chunks.push(buf); offset += buf.length;\n  });\n  const xref = `xref\\n0 ${objs.length + 1}\\n0000000000 65535 f \\n` + offsets.map(o => String(o).padStart(10, '0') + ' 00000 n \\n').join('') +\n    `trailer\\n<< /Size ${objs.length + 1} /Root ${catalog} 0 R >>\\nstartxref\\n${offset}\\n%%EOF\\n`;\n  chunks.push(Buffer.from(xref, 'latin1'));\n  return Buffer.concat(chunks);\n}\n\n// German texts for every problem / warning line. The checks write English; localize() translates line by line,\n// so the stored row, the mails and the approval request use one language (Settings → invoiceViewLanguage).\n\nconst DE = [\n  [/^Missing invoice number$/, 'Rechnungsnummer fehlt'],\n  [/^Missing issue date$/, 'Rechnungsdatum fehlt'],\n  [/^Missing currency$/, 'Währung fehlt'],\n  [/^Missing seller name$/, 'Name des Lieferanten fehlt'],\n  [/^Missing buyer name$/, 'Name des Rechnungsempfängers fehlt'],\n  [/^Missing invoice total$/, 'Rechnungsbetrag fehlt'],\n  [/^Sum of line amounts (\\S+) ≠ line total (\\S+)$/, 'Summe der Positionen $1 ≠ Positionssumme $2'],\n  [/^Net total (\\S+) ≠ lines − allowances \\+ charges$/, 'Nettosumme $1 ≠ Positionen − Nachlässe + Zuschläge'],\n  [/^Gross (\\S+) ≠ net (\\S+) \\+ VAT (\\S+)$/, 'Brutto $1 ≠ Netto $2 + USt $3'],\n  [/^Amount due (\\S+) ≠ gross (\\S+) − prepaid (\\S+)$/, 'Zahlbetrag $1 ≠ Brutto $2 − Anzahlung $3'],\n  [/^Amount due (\\S+) differs from gross (\\S+) without a stated prepayment — e\\.g\\. undeclared prepayment, third-party amounts or a correction; check before paying$/, 'Zahlbetrag $1 weicht von Brutto $2 ab, ohne angegebene Anzahlung – z. B. nicht ausgewiesene Anzahlung, Fremdleistungen oder Korrektur; vor der Zahlung prüfen'],\n  [/^VAT (\\S+)% on (\\S+) should be (\\S+), invoice says (\\S+)$/, 'USt $1 % auf $2 müsste $3 sein, Rechnung nennt $4'],\n  [/^VAT breakdown (\\S+) ≠ VAT total (\\S+)$/, 'USt-Aufschlüsselung $1 ≠ USt gesamt $2'],\n  [/^Seller has neither VAT ID nor tax number \\(required unless VAT-exempt\\)$/, 'Lieferant ohne USt-IdNr. und Steuernummer (Pflicht, außer bei Steuerbefreiung)'],\n  [/^Seller VAT ID looks malformed: (.*)$/, 'USt-IdNr. des Lieferanten sieht fehlerhaft aus: $1'],\n  [/^German VAT ID must be DE \\+ 9 digits: (.*)$/, 'Deutsche USt-IdNr. muss DE + 9 Ziffern haben: $1'],\n  [/^IBAN checksum invalid: (.*)$/, 'IBAN-Prüfsumme ungültig: $1'],\n  [/^Credit note \\(type 381\\)$/, 'Gutschrift (Typ 381)'],\n  [/^Due date (\\S+) has passed$/, 'Fälligkeit $1 ist überschritten'],\n  [/^Allowances, charges and prepaid amounts must not be negative$/, 'Nachlässe, Zuschläge und Anzahlungen dürfen nicht negativ sein'],\n  [/^Implausible rounding amount (\\S+)$/, 'Unplausibler Rundungsbetrag $1'],\n  [/^VAT category (\\S+) must have 0\\.00 VAT, invoice says (\\S+)$/, 'USt-Kategorie $1 muss 0,00 USt haben, Rechnung nennt $2'],\n  [/^First IBAN from this supplier — check the bank details once before paying$/, 'Erste IBAN dieses Lieferanten – Bankverbindung vor der Zahlung einmal prüfen'],\n  [/^VAT ID \\/ tax number (.+) differs from earlier invoices of this supplier \\((.+)\\)$/, 'USt-IdNr./Steuernummer $1 weicht von früheren Rechnungen dieses Lieferanten ab ($2)'],\n  [/^Same invoice also attached as (.+)$/, 'Dieselbe Rechnung ist auch als $1 angehängt'],\n  [/^Could not read the e-invoice XML: (.*)$/, 'E-Rechnungs-XML nicht lesbar: $1'],\n  [/^This XML file is not an invoice \\((.*)\\) — please look at it$/, 'Diese XML-Datei ist keine Rechnung ($1) – bitte ansehen'],\n  [/^No e-invoice data in this PDF: fields were read by the AI model, please verify$/, 'Keine E-Rechnungsdaten im PDF: Die Felder hat das KI-Modell gelesen – bitte prüfen'],\n  [/^Scanned PDF without a text layer: needs OCR or manual entry$/, 'Gescanntes PDF ohne Textebene: OCR oder manuelle Erfassung nötig'],\n  [/^Could not read this PDF automatically \\((.*)\\) — please enter it by hand$/, 'PDF konnte nicht automatisch gelesen werden ($1) – bitte manuell erfassen'],\n  [/^Unpacked from (.*)$/, 'Entpackt aus $1'],\n  [/^Also in this mail, not processed: (.*)$/, 'Ebenfalls in dieser Mail, nicht verarbeitet: $1'],\n  [/^Readable PDF could not be created: (.*)$/, 'Lesbare PDF-Ansicht nicht erstellt: $1'],\n  [/^First invoice from this supplier — check the bank details once before paying$/, 'Erste Rechnung dieses Lieferanten – Bankverbindung vor der Zahlung einmal prüfen'],\n  [/^Bank details changed: IBAN (.+) was never used by this supplier before \\(last: (.+) on invoice (.+)\\)\\. Confirm by phone on a number you already know — not one from this invoice or email\\.$/,\n    'Bankverbindung geändert: IBAN $1 wurde von diesem Lieferanten noch nie verwendet (zuletzt: $2 auf Rechnung $3). Telefonisch unter einer Ihnen bekannten Nummer bestätigen – nicht unter einer aus dieser Rechnung oder Mail.'],\n  [/^Sent from (\\S+), earlier invoices of this supplier came from (.+)$/, 'Gesendet von $1, frühere Rechnungen dieses Lieferanten kamen von $2'],\n];\n// fragments inside the \"not processed\" list\nconst DE_INLINE = [\n  [/\\(not a PDF, XML or ZIP\\)/g, '(kein PDF, XML oder ZIP)'],\n  [/\\(encrypted\\)/g, '(verschlüsselt)'],\n  [/\\(ZIP could not be opened: /g, '(ZIP nicht lesbar: '],\n  [/\\(compression method /g, '(Kompressionsverfahren '],\n];\n\nfunction localize(text, lang) {\n  if (lang !== 'de' || !text) return text;\n  return String(text).split('\\n').map(line => {\n    for (const [re, rep] of DE) {\n      if (!re.test(line)) continue;\n      line = line.replace(re, rep);\n      // German decimal comma, only in the amount checks (not in file names or VAT IDs)\n      if (/^(Summe|Nettosumme|Brutto|Zahlbetrag|USt|Unplausibler)/.test(line)) line = line.replace(/(\\d)\\.(\\d{2})(?!\\d)/g, '$1,$2');\n      break;\n    }\n    for (const [re, rep] of DE_INLINE) line = line.replace(re, rep);\n    return line;\n  }).join('\\n');\n}\n\n// Input: either the e-invoice XML, or an invoice read by the AI model from a PDF without XML.\nconst today = $now.toFormat('yyyy-MM-dd');\nconst lang = $('Settings').first().json.invoiceViewLanguage || 'de';\nconst clean = s => String(s || '').replace(/\\s+/g, '').toUpperCase();\nconst results = $input.all().map((item, i) => {\n  const m = item.json;\n  let inv = null, res;\n  try {\n    if (m.unreadable) throw Object.assign(new Error(m.unreadable), { plain: true });\n    inv = m.aiInvoice || parseInvoice(m.xml);\n    res = checkInvoice(inv, today);\n  } catch (e) {\n    inv = null;\n    const msg = e.plain ? e.message\n      : m.notInvoice ? 'This XML file is not an invoice (' + e.message.split(': ').pop() + ') — please look at it'\n      : 'Could not read the e-invoice XML: ' + String(e.message).replace(/\\s+/g, ' ');\n    res = { status: 'check', problems: [msg], warnings: [] };\n  }\n  if (m.fromZip) res.warnings.push('Unpacked from ' + m.fromZip);\n  if (m.skipped) res.warnings.push('Also in this mail, not processed: ' + m.skipped.split('\\n').join('; '));\n  if (m.aiInvoice) {\n    res.status = 'check';\n    res.problems.unshift('No e-invoice data in this PDF: fields were read by the AI model, please verify');\n  }\n  const t = inv ? inv.totals : {};\n  // Files for the emails: the original, plus a readable PDF when the original is a bare XML file\n  const binary = {};\n  if (item.binary?.data) binary.original = item.binary.data;\n  if (inv && !m.aiInvoice && /\\.xml$/i.test(m.fileName)) {\n    try {\n      const pdf = renderInvoicePdf(inv, { lang, fileName: m.fileName });\n      binary.view = { data: pdf.toString('base64'), mimeType: 'application/pdf', fileExtension: 'pdf',\n                      fileName: m.fileName.replace(/\\.xml$/i, '') + (lang === 'de' ? '_lesbar.pdf' : '_readable.pdf') };\n    } catch (e) {\n      res.warnings.push('Readable PDF could not be created: ' + e.message);\n    }\n  }\n  return {\n    pairedItem: i,\n    binary,\n    json: {\n      dedupeKey: inv && inv.invoiceNumber ? clean(inv.seller?.vatId || inv.seller?.taxNumber || inv.seller?.name) + '|' + clean(inv.invoiceNumber) : 'FILE|' + m.fileHash,\n      status: res.status,\n      source: m.aiInvoice ? 'pdf-ai' : m.unreadable ? 'pdf-unreadable' : 'e-invoice',\n      format: inv ? [inv.syntax, inv.profile].filter(Boolean).join(' · ') : '',\n      invoiceNumber: inv?.invoiceNumber || '',\n      invoiceDate: inv?.issueDate || '',\n      dueDate: inv?.dueDate || '',\n      sellerName: inv?.seller?.name || '',\n      sellerVatId: inv?.seller?.vatId || inv?.seller?.taxNumber || '',\n      buyerName: inv?.buyer?.name || '',\n      buyerReference: inv?.buyerReference || '',\n      currency: inv?.currency || '',\n      netAmount: t.taxBasis ?? null,\n      vatAmount: t.tax ?? null,\n      grossAmount: t.grand ?? null,\n      amountDue: t.due ?? null,\n      iban: inv?.iban || '',\n      lineCount: inv ? inv.lines.length : 0,\n      problems: localize(res.problems.join('\\n'), lang),\n      warnings: localize(res.warnings.join('\\n'), lang),\n      fileName: m.fileName,\n      fileHash: m.fileHash,\n      emailFrom: m.emailFrom,\n      emailSubject: m.emailSubject,\n      receivedAt: m.receivedAt,\n    },\n  };\n});\n// The same invoice twice in one run (e.g. XRechnung XML + ZUGFeRD PDF in one mail): keep the first, note the other.\nconst firstByKey = new Map();\nreturn results.filter(r => {\n  const first = firstByKey.get(r.json.dedupeKey);\n  if (!first) { firstByKey.set(r.json.dedupeKey, r); return true; }\n  const note = localize('Same invoice also attached as ' + r.json.fileName, lang);\n  first.json.warnings = [first.json.warnings, note].filter(Boolean).join('\\n');\n  return false;\n});"
    },
    "name": "Parse & check",
    "type": "n8n-nodes-base.code",
    "typeVersion": 2,
    "position": [
-    1680,
+    1920,
     100
    ]
   },
@@ -505,9 +683,12 @@
    "type": "n8n-nodes-base.dataTable",
    "typeVersion": 1.1,
    "position": [
-    1920,
+    2160,
     0
-   ]
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
   },
   {
    "parameters": {
@@ -532,9 +713,12 @@
    "type": "n8n-nodes-base.dataTable",
    "typeVersion": 1.1,
    "position": [
-    1920,
+    2160,
     200
-   ]
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
   },
   {
    "parameters": {
@@ -555,20 +739,20 @@
    "type": "n8n-nodes-base.set",
    "typeVersion": 3.4,
    "position": [
-    2160,
+    2880,
     0
    ]
   },
   {
    "parameters": {
-    "jsCode": "// The Data Table node returns only the stored row, so take the files back from \"Parse & check\".\nconst b = $('Parse & check').item.binary || {};\nreturn {\n  json: {\n    ...$json,\n    reviewFiles: ['view', 'original'].filter(k => b[k]).join(','),\n    forwardFile: b.view ? 'view' : (b.original ? 'original' : ''),\n  },\n  binary: b,\n};",
+    "jsCode": "// The Data Table node returns only the stored row, so take the files back from \"Parse & check\".\nconst src = $('Parse & check').all().find(x => x.json.fileHash === $json.fileHash && x.json.fileName === $json.fileName);\nconst b = (src && src.binary) || {};\nreturn {\n  json: {\n    ...$json,\n    reviewFiles: ['view', 'original'].filter(k => b[k]).join(','),\n    forwardFile: b.view ? 'view' : (b.original ? 'original' : ''),\n  },\n  binary: b,\n};",
     "mode": "runOnceForEachItem"
    },
    "name": "Attach files (duplicate)",
    "type": "n8n-nodes-base.code",
    "typeVersion": 2,
    "position": [
-    2400,
+    3120,
     0
    ]
   },
@@ -576,9 +760,9 @@
    "parameters": {
     "fromEmail": "={{ $('Settings').first().json.senderEmail }}",
     "toEmail": "={{ $('Settings').first().json.accountingEmail }}",
-    "subject": "=Duplicate invoice {{ $json.invoiceNumber }} from {{ $json.sellerName }}",
+    "subject": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Duplicate' : 'Doppelt eingegangen' }}: {{ $json.invoiceNumber ? (($('Settings').first().json.invoiceViewLanguage === 'en' ? 'invoice ' : 'Rechnung ') + $json.invoiceNumber + ($json.sellerName ? ($('Settings').first().json.invoiceViewLanguage === 'en' ? ' from ' : ' von ') + $json.sellerName : '')) : $json.fileName }}",
     "emailFormat": "html",
-    "html": "={{ (() => {\n  const j = $json;\n  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\n  const money = v => (v === null || v === undefined || v === '' ? '—' : Number(v).toFixed(2));\n  const list = s => s ? '<ul>' + s.split('\\n').map(p => '<li>' + esc(p) + '</li>').join('') + '</ul>' : '';\n  return `<p>${j.duplicate ? '<b>This invoice was already received before.</b>' : 'This invoice needs a manual check before payment.'}</p>\n<table cellpadding=\"4\" style=\"border-collapse:collapse\">\n<tr><td>Seller</td><td><b>${esc(j.sellerName)}</b> ${esc(j.sellerVatId)}</td></tr>\n<tr><td>Invoice</td><td>${esc(j.invoiceNumber)} from ${esc(j.invoiceDate)}${j.dueDate ? ', due ' + esc(j.dueDate) : ''}</td></tr>\n<tr><td>Amount</td><td>${money(j.grossAmount)} ${esc(j.currency)} (net ${money(j.netAmount)}, VAT ${money(j.vatAmount)})</td></tr>\n<tr><td>Format</td><td>${esc(j.format || j.source)}</td></tr>\n<tr><td>File</td><td>${esc(j.fileName)} — ${esc(j.emailFrom)}</td></tr>\n</table>\n${j.problems ? '<p><b>Problems</b></p>' + list(j.problems) : ''}${j.warnings ? '<p><b>Notes</b></p>' + list(j.warnings) : ''}`;\n})() }}",
+    "html": "={{ (() => {\n  const j = $json;\n  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\n  const money = v => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString($('Settings').first().json.invoiceViewLanguage === 'en' ? 'en-GB' : 'de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));\n  const list = s => s ? '<ul>' + s.split('\\n').map(p => '<li>' + esc(p) + '</li>').join('') + '</ul>' : '';\n  const en = $('Settings').first().json.invoiceViewLanguage === 'en';\n  const t = en\n    ? { dup: 'This invoice was already received before.', check: 'This invoice needs a manual check before payment.', seller: 'Seller', invoice: 'Invoice', from: 'from', due: 'due', amount: 'Amount', net: 'net', vat: 'VAT', format: 'Format', file: 'File', problems: 'Problems', notes: 'Notes' }\n    : { dup: 'Diese Rechnung ist schon einmal eingegangen.', check: 'Diese Rechnung muss vor der Zahlung geprüft werden.', seller: 'Lieferant', invoice: 'Rechnung', from: 'vom', due: 'fällig', amount: 'Betrag', net: 'netto', vat: 'USt', format: 'Format', file: 'Datei', problems: 'Probleme', notes: 'Hinweise' };\n  return `<p>${j.duplicate ? '<b>' + t.dup + '</b>' : t.check}</p>\n<table cellpadding=\"4\" style=\"border-collapse:collapse\">\n<tr><td>${t.seller}</td><td><b>${esc(j.sellerName)}</b> ${esc(j.sellerVatId)}</td></tr>\n<tr><td>${t.invoice}</td><td>${esc(j.invoiceNumber)} ${t.from} ${esc(j.invoiceDate)}${j.dueDate ? ', ' + t.due + ' ' + esc(j.dueDate) : ''}</td></tr>\n<tr><td>${t.amount}</td><td>${money(j.grossAmount)} ${esc(j.currency)} (${t.net} ${money(j.netAmount)}, ${t.vat} ${money(j.vatAmount)})</td></tr>\n<tr><td>${t.format}</td><td>${esc(j.format || j.source)}</td></tr>\n<tr><td>${t.file}</td><td>${esc(j.fileName)} — ${esc(j.emailFrom)}</td></tr>\n</table>\n${j.problems ? '<p><b>' + t.problems + '</b></p>' + list(j.problems) : ''}${j.warnings ? '<p><b>' + t.notes + '</b></p>' + list(j.warnings) : ''}`;\n})() }}",
     "options": {
      "fileAttachments": "={{ $json.reviewFiles }}"
     }
@@ -587,8 +771,47 @@
    "type": "n8n-nodes-base.emailSend",
    "typeVersion": 2.1,
    "position": [
-    2640,
+    3360,
     0
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
+  },
+  {
+   "parameters": {
+    "resource": "row",
+    "operation": "get",
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "e_invoices"
+    },
+    "returnAll": true
+   },
+   "name": "Read invoice history",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    2400,
+    200
+   ],
+   "executeOnce": true,
+   "alwaysOutputData": true,
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
+  },
+  {
+   "parameters": {
+    "jsCode": "// Supplier check: compares each new invoice with earlier invoices of the same supplier.\n// Changed bank details are the classic invoice fraud, so an unknown IBAN always goes to a person.\n\nconst CHANGED = 'Bank details changed';\n// the stored text may already be translated (messages.js), so recognise both languages\nconst wasAlarm = r => /Bank details changed|Bankverbindung geändert/.test(String(r.problems || ''));\nconst norm = s => String(s || '').replace(/\\s+/g, '').toUpperCase();\nconst supplierKey = r => norm(r.sellerVatId) || norm(r.sellerName);\n// Same supplier if the VAT ID / tax number OR the name matches — a fake that drops the VAT ID must not look new.\nconst sameSupplier = (a, b) =>\n  (norm(a.sellerVatId) && norm(a.sellerVatId) === norm(b.sellerVatId)) ||\n  (norm(a.sellerName) && norm(a.sellerName) === norm(b.sellerName));\nconst mailDomain = s => {\n  const m = String(s || '').match(/@([A-Za-z0-9.-]+)/);\n  return m ? m[1].toLowerCase() : '';\n};\nconst shortIban = s => {\n  const n = norm(s);\n  return n.length > 8 ? n.slice(0, 4) + ' … ' + n.slice(-4) : n;\n};\n\n// history: rows already in the table; invoices: new rows (not yet saved), in arrival order.\nfunction checkSuppliers(invoices, history) {\n  const seen = history.slice();\n  return invoices.map(inv => {\n    const key = supplierKey(inv);\n    const out = { ...inv, previousIban: '' };\n    const problems = inv.problems ? inv.problems.split('\\n') : [];\n    const warnings = inv.warnings ? inv.warnings.split('\\n') : [];\n    if (!key) {\n      seen.push(out);\n      return out;\n    }\n    const earlier = seen.filter(r => sameSupplier(r, inv));\n    if (!earlier.length) {\n      warnings.push('First invoice from this supplier — check the bank details once before paying');\n    } else {\n      // An IBAN counts as known only if it came in without a bank-change alarm, or a person confirmed it.\n      const trusted = earlier.filter(r => norm(r.iban) && (!wasAlarm(r) || r.ibanConfirmed === 'yes'));\n      const known = new Set(trusted.map(r => norm(r.iban)));\n      const iban = norm(inv.iban);\n      const ids = new Set(earlier.map(r => norm(r.sellerVatId)).filter(Boolean));\n      if (ids.size && !ids.has(norm(inv.sellerVatId))) {\n        warnings.push(`VAT ID / tax number ${inv.sellerVatId || '(none)'} differs from earlier invoices of this supplier (${[...ids].join(', ')})`);\n      }\n      if (iban && !known.size) {\n        warnings.push('First IBAN from this supplier — check the bank details once before paying');\n      } else if (iban && !known.has(iban)) {\n        const last = trusted[trusted.length - 1];\n        out.previousIban = norm(last.iban);\n        problems.unshift(`${CHANGED}: IBAN ${shortIban(iban)} was never used by this supplier before ` +\n          `(last: ${shortIban(last.iban)} on invoice ${last.invoiceNumber || '?'}). ` +\n          'Confirm by phone on a number you already know — not one from this invoice or email.');\n      }\n      const domains = new Set(earlier.map(r => mailDomain(r.emailFrom)).filter(Boolean));\n      const domain = mailDomain(inv.emailFrom);\n      if (domain && domains.size && !domains.has(domain)) {\n        warnings.push(`Sent from ${domain}, earlier invoices of this supplier came from ${[...domains].join(', ')}`);\n      }\n    }\n    out.problems = problems.join('\\n');\n    out.warnings = warnings.join('\\n');\n    if (problems.length) out.status = 'check';\n    seen.push(out);\n    return out;\n  });\n}\n\n// German texts for every problem / warning line. The checks write English; localize() translates line by line,\n// so the stored row, the mails and the approval request use one language (Settings → invoiceViewLanguage).\n\nconst DE = [\n  [/^Missing invoice number$/, 'Rechnungsnummer fehlt'],\n  [/^Missing issue date$/, 'Rechnungsdatum fehlt'],\n  [/^Missing currency$/, 'Währung fehlt'],\n  [/^Missing seller name$/, 'Name des Lieferanten fehlt'],\n  [/^Missing buyer name$/, 'Name des Rechnungsempfängers fehlt'],\n  [/^Missing invoice total$/, 'Rechnungsbetrag fehlt'],\n  [/^Sum of line amounts (\\S+) ≠ line total (\\S+)$/, 'Summe der Positionen $1 ≠ Positionssumme $2'],\n  [/^Net total (\\S+) ≠ lines − allowances \\+ charges$/, 'Nettosumme $1 ≠ Positionen − Nachlässe + Zuschläge'],\n  [/^Gross (\\S+) ≠ net (\\S+) \\+ VAT (\\S+)$/, 'Brutto $1 ≠ Netto $2 + USt $3'],\n  [/^Amount due (\\S+) ≠ gross (\\S+) − prepaid (\\S+)$/, 'Zahlbetrag $1 ≠ Brutto $2 − Anzahlung $3'],\n  [/^Amount due (\\S+) differs from gross (\\S+) without a stated prepayment — e\\.g\\. undeclared prepayment, third-party amounts or a correction; check before paying$/, 'Zahlbetrag $1 weicht von Brutto $2 ab, ohne angegebene Anzahlung – z. B. nicht ausgewiesene Anzahlung, Fremdleistungen oder Korrektur; vor der Zahlung prüfen'],\n  [/^VAT (\\S+)% on (\\S+) should be (\\S+), invoice says (\\S+)$/, 'USt $1 % auf $2 müsste $3 sein, Rechnung nennt $4'],\n  [/^VAT breakdown (\\S+) ≠ VAT total (\\S+)$/, 'USt-Aufschlüsselung $1 ≠ USt gesamt $2'],\n  [/^Seller has neither VAT ID nor tax number \\(required unless VAT-exempt\\)$/, 'Lieferant ohne USt-IdNr. und Steuernummer (Pflicht, außer bei Steuerbefreiung)'],\n  [/^Seller VAT ID looks malformed: (.*)$/, 'USt-IdNr. des Lieferanten sieht fehlerhaft aus: $1'],\n  [/^German VAT ID must be DE \\+ 9 digits: (.*)$/, 'Deutsche USt-IdNr. muss DE + 9 Ziffern haben: $1'],\n  [/^IBAN checksum invalid: (.*)$/, 'IBAN-Prüfsumme ungültig: $1'],\n  [/^Credit note \\(type 381\\)$/, 'Gutschrift (Typ 381)'],\n  [/^Due date (\\S+) has passed$/, 'Fälligkeit $1 ist überschritten'],\n  [/^Allowances, charges and prepaid amounts must not be negative$/, 'Nachlässe, Zuschläge und Anzahlungen dürfen nicht negativ sein'],\n  [/^Implausible rounding amount (\\S+)$/, 'Unplausibler Rundungsbetrag $1'],\n  [/^VAT category (\\S+) must have 0\\.00 VAT, invoice says (\\S+)$/, 'USt-Kategorie $1 muss 0,00 USt haben, Rechnung nennt $2'],\n  [/^First IBAN from this supplier — check the bank details once before paying$/, 'Erste IBAN dieses Lieferanten – Bankverbindung vor der Zahlung einmal prüfen'],\n  [/^VAT ID \\/ tax number (.+) differs from earlier invoices of this supplier \\((.+)\\)$/, 'USt-IdNr./Steuernummer $1 weicht von früheren Rechnungen dieses Lieferanten ab ($2)'],\n  [/^Same invoice also attached as (.+)$/, 'Dieselbe Rechnung ist auch als $1 angehängt'],\n  [/^Could not read the e-invoice XML: (.*)$/, 'E-Rechnungs-XML nicht lesbar: $1'],\n  [/^This XML file is not an invoice \\((.*)\\) — please look at it$/, 'Diese XML-Datei ist keine Rechnung ($1) – bitte ansehen'],\n  [/^No e-invoice data in this PDF: fields were read by the AI model, please verify$/, 'Keine E-Rechnungsdaten im PDF: Die Felder hat das KI-Modell gelesen – bitte prüfen'],\n  [/^Scanned PDF without a text layer: needs OCR or manual entry$/, 'Gescanntes PDF ohne Textebene: OCR oder manuelle Erfassung nötig'],\n  [/^Could not read this PDF automatically \\((.*)\\) — please enter it by hand$/, 'PDF konnte nicht automatisch gelesen werden ($1) – bitte manuell erfassen'],\n  [/^Unpacked from (.*)$/, 'Entpackt aus $1'],\n  [/^Also in this mail, not processed: (.*)$/, 'Ebenfalls in dieser Mail, nicht verarbeitet: $1'],\n  [/^Readable PDF could not be created: (.*)$/, 'Lesbare PDF-Ansicht nicht erstellt: $1'],\n  [/^First invoice from this supplier — check the bank details once before paying$/, 'Erste Rechnung dieses Lieferanten – Bankverbindung vor der Zahlung einmal prüfen'],\n  [/^Bank details changed: IBAN (.+) was never used by this supplier before \\(last: (.+) on invoice (.+)\\)\\. Confirm by phone on a number you already know — not one from this invoice or email\\.$/,\n    'Bankverbindung geändert: IBAN $1 wurde von diesem Lieferanten noch nie verwendet (zuletzt: $2 auf Rechnung $3). Telefonisch unter einer Ihnen bekannten Nummer bestätigen – nicht unter einer aus dieser Rechnung oder Mail.'],\n  [/^Sent from (\\S+), earlier invoices of this supplier came from (.+)$/, 'Gesendet von $1, frühere Rechnungen dieses Lieferanten kamen von $2'],\n];\n// fragments inside the \"not processed\" list\nconst DE_INLINE = [\n  [/\\(not a PDF, XML or ZIP\\)/g, '(kein PDF, XML oder ZIP)'],\n  [/\\(encrypted\\)/g, '(verschlüsselt)'],\n  [/\\(ZIP could not be opened: /g, '(ZIP nicht lesbar: '],\n  [/\\(compression method /g, '(Kompressionsverfahren '],\n];\n\nfunction localize(text, lang) {\n  if (lang !== 'de' || !text) return text;\n  return String(text).split('\\n').map(line => {\n    for (const [re, rep] of DE) {\n      if (!re.test(line)) continue;\n      line = line.replace(re, rep);\n      // German decimal comma, only in the amount checks (not in file names or VAT IDs)\n      if (/^(Summe|Nettosumme|Brutto|Zahlbetrag|USt|Unplausibler)/.test(line)) line = line.replace(/(\\d)\\.(\\d{2})(?!\\d)/g, '$1,$2');\n      break;\n    }\n    for (const [re, rep] of DE_INLINE) line = line.replace(re, rep);\n    return line;\n  }).join('\\n');\n}\n\n// New invoices (from \"New invoice?\") against everything already in the table (this node's input).\nconst history = $input.all().map(x => x.json).filter(r => r.dedupeKey);\nconst lang = $('Settings').first().json.invoiceViewLanguage || 'de';\nreturn checkSuppliers($('New invoice?').all().map(x => x.json), history)\n  .map(json => ({ json: { ...json, problems: localize(json.problems, lang), warnings: localize(json.warnings, lang) } }));"
+   },
+   "name": "Check supplier",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2640,
+    200
    ]
   },
   {
@@ -614,20 +837,20 @@
    "type": "n8n-nodes-base.dataTable",
    "typeVersion": 1.1,
    "position": [
-    2160,
+    2880,
     200
    ]
   },
   {
    "parameters": {
-    "jsCode": "// The Data Table node returns only the stored row, so take the files back from \"Parse & check\".\nconst b = $('Parse & check').item.binary || {};\nreturn {\n  json: {\n    ...$json,\n    reviewFiles: ['view', 'original'].filter(k => b[k]).join(','),\n    forwardFile: b.view ? 'view' : (b.original ? 'original' : ''),\n  },\n  binary: b,\n};",
+    "jsCode": "// The Data Table node returns only the stored row, so take the files back from \"Parse & check\".\nconst src = $('Parse & check').all().find(x => x.json.fileHash === $json.fileHash && x.json.fileName === $json.fileName);\nconst b = (src && src.binary) || {};\nreturn {\n  json: {\n    ...$json,\n    reviewFiles: ['view', 'original'].filter(k => b[k]).join(','),\n    forwardFile: b.view ? 'view' : (b.original ? 'original' : ''),\n  },\n  binary: b,\n};",
     "mode": "runOnceForEachItem"
    },
    "name": "Attach files",
    "type": "n8n-nodes-base.code",
    "typeVersion": 2,
    "position": [
-    2400,
+    3120,
     200
    ]
   },
@@ -660,7 +883,7 @@
    "type": "n8n-nodes-base.if",
    "typeVersion": 2.2,
    "position": [
-    2640,
+    3360,
     200
    ]
   },
@@ -668,9 +891,9 @@
    "parameters": {
     "fromEmail": "={{ $('Settings').first().json.senderEmail }}",
     "toEmail": "={{ $('Settings').first().json.accountingEmail }}",
-    "subject": "=Please check invoice {{ $json.invoiceNumber }} from {{ $json.sellerName }}",
+    "subject": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Please check' : 'Bitte prüfen' }}: {{ $json.invoiceNumber ? (($('Settings').first().json.invoiceViewLanguage === 'en' ? 'invoice ' : 'Rechnung ') + $json.invoiceNumber + ($json.sellerName ? ($('Settings').first().json.invoiceViewLanguage === 'en' ? ' from ' : ' von ') + $json.sellerName : '')) : $json.fileName }}",
     "emailFormat": "html",
-    "html": "={{ (() => {\n  const j = $json;\n  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\n  const money = v => (v === null || v === undefined || v === '' ? '—' : Number(v).toFixed(2));\n  const list = s => s ? '<ul>' + s.split('\\n').map(p => '<li>' + esc(p) + '</li>').join('') + '</ul>' : '';\n  return `<p>${j.duplicate ? '<b>This invoice was already received before.</b>' : 'This invoice needs a manual check before payment.'}</p>\n<table cellpadding=\"4\" style=\"border-collapse:collapse\">\n<tr><td>Seller</td><td><b>${esc(j.sellerName)}</b> ${esc(j.sellerVatId)}</td></tr>\n<tr><td>Invoice</td><td>${esc(j.invoiceNumber)} from ${esc(j.invoiceDate)}${j.dueDate ? ', due ' + esc(j.dueDate) : ''}</td></tr>\n<tr><td>Amount</td><td>${money(j.grossAmount)} ${esc(j.currency)} (net ${money(j.netAmount)}, VAT ${money(j.vatAmount)})</td></tr>\n<tr><td>Format</td><td>${esc(j.format || j.source)}</td></tr>\n<tr><td>File</td><td>${esc(j.fileName)} — ${esc(j.emailFrom)}</td></tr>\n</table>\n${j.problems ? '<p><b>Problems</b></p>' + list(j.problems) : ''}${j.warnings ? '<p><b>Notes</b></p>' + list(j.warnings) : ''}`;\n})() }}",
+    "html": "={{ (() => {\n  const j = $json;\n  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\n  const money = v => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString($('Settings').first().json.invoiceViewLanguage === 'en' ? 'en-GB' : 'de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));\n  const list = s => s ? '<ul>' + s.split('\\n').map(p => '<li>' + esc(p) + '</li>').join('') + '</ul>' : '';\n  const en = $('Settings').first().json.invoiceViewLanguage === 'en';\n  const t = en\n    ? { dup: 'This invoice was already received before.', check: 'This invoice needs a manual check before payment.', seller: 'Seller', invoice: 'Invoice', from: 'from', due: 'due', amount: 'Amount', net: 'net', vat: 'VAT', format: 'Format', file: 'File', problems: 'Problems', notes: 'Notes' }\n    : { dup: 'Diese Rechnung ist schon einmal eingegangen.', check: 'Diese Rechnung muss vor der Zahlung geprüft werden.', seller: 'Lieferant', invoice: 'Rechnung', from: 'vom', due: 'fällig', amount: 'Betrag', net: 'netto', vat: 'USt', format: 'Format', file: 'Datei', problems: 'Probleme', notes: 'Hinweise' };\n  return `<p>${j.duplicate ? '<b>' + t.dup + '</b>' : t.check}</p>\n<table cellpadding=\"4\" style=\"border-collapse:collapse\">\n<tr><td>${t.seller}</td><td><b>${esc(j.sellerName)}</b> ${esc(j.sellerVatId)}</td></tr>\n<tr><td>${t.invoice}</td><td>${esc(j.invoiceNumber)} ${t.from} ${esc(j.invoiceDate)}${j.dueDate ? ', ' + t.due + ' ' + esc(j.dueDate) : ''}</td></tr>\n<tr><td>${t.amount}</td><td>${money(j.grossAmount)} ${esc(j.currency)} (${t.net} ${money(j.netAmount)}, ${t.vat} ${money(j.vatAmount)})</td></tr>\n<tr><td>${t.format}</td><td>${esc(j.format || j.source)}</td></tr>\n<tr><td>${t.file}</td><td>${esc(j.fileName)} — ${esc(j.emailFrom)}</td></tr>\n</table>\n${j.problems ? '<p><b>' + t.problems + '</b></p>' + list(j.problems) : ''}${j.warnings ? '<p><b>' + t.notes + '</b></p>' + list(j.warnings) : ''}`;\n})() }}",
     "options": {
      "fileAttachments": "={{ $json.reviewFiles }}"
     }
@@ -679,9 +902,12 @@
    "type": "n8n-nodes-base.emailSend",
    "typeVersion": 2.1,
    "position": [
-    2880,
+    3600,
     120
-   ]
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
   },
   {
    "parameters": {
@@ -712,8 +938,8 @@
    "type": "n8n-nodes-base.if",
    "typeVersion": 2.2,
    "position": [
-    2880,
-    320
+    3600,
+    280
    ]
   },
   {
@@ -722,7 +948,7 @@
     "toEmail": "={{ $('Settings').first().json.accountingInbox }}",
     "subject": "=Rechnung {{ $json.invoiceNumber }} {{ $json.sellerName }}",
     "emailFormat": "text",
-    "text": "=E-Rechnung {{ $json.invoiceNumber }} vom {{ $json.invoiceDate }}, {{ $json.sellerName }}, {{ $json.grossAmount }} {{ $json.currency }}",
+    "text": "=E-Rechnung {{ $json.invoiceNumber }} vom {{ $json.invoiceDate }}, {{ $json.sellerName }}, {{ Number($json.amountDue ?? $json.grossAmount).toLocaleString('de-DE', { minimumFractionDigits: 2 }) }} {{ $json.currency }}",
     "options": {
      "fileAttachments": "={{ $json.forwardFile }}"
     }
@@ -731,9 +957,12 @@
    "type": "n8n-nodes-base.emailSend",
    "typeVersion": 2.1,
    "position": [
-    3120,
-    320
-   ]
+    3840,
+    280
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
   },
   {
    "parameters": {},
@@ -762,7 +991,10 @@
    "position": [
     240,
     1000
-   ]
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
   },
   {
    "parameters": {
@@ -809,7 +1041,540 @@
    "position": [
     960,
     1000
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
+  },
+  {
+   "parameters": {
+    "content": "### Approval before payment — e-mail, WhatsApp or Telegram\nClean invoices from `approvalFromAmount` upwards (and every invoice not in `approvalCurrency`) are sent to the approver one by one, with **Freigeben / Ablehnen** buttons. Pick the channel in **Settings** → `approvalChannel`: `email` (works everywhere), `whatsapp` (WhatsApp Business Cloud), `telegram` or `none`.\n\nOnly approved invoices go on to the bookkeeping inbox; the decision is stored in the table. **No answer within `approvalWaitHours`** → accounting gets a mail, nothing waits forever. Note for WhatsApp: a free-text message is only delivered if the approver wrote to your business number within the last 24 hours — otherwise the request runs into this timeout.",
+    "width": 820,
+    "height": 300,
+    "color": 4
+   },
+   "name": "Approval note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    3580,
+    300
    ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c1",
+       "leftValue": "={{ ($('Settings').first().json.approvalChannel || 'none') !== 'none' && (($json.currency || 'EUR') !== ($('Settings').first().json.approvalCurrency || 'EUR') || Math.max(Number($json.grossAmount || 0), Number($json.amountDue || 0)) >= Number($('Settings').first().json.approvalFromAmount || 0)) }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "name": "Needs approval?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    3600,
+    440
+   ]
+  },
+  {
+   "parameters": {
+    "batchSize": 1,
+    "options": {}
+   },
+   "name": "One invoice at a time",
+   "type": "n8n-nodes-base.splitInBatches",
+   "typeVersion": 3,
+   "position": [
+    3840,
+    620
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Approval before payment: the request text (same content for e-mail, WhatsApp and Telegram)\n// and reading the answer of a \"Send and Wait for Response\" node.\n\nconst T = {\n  de: {\n    subject: (r) => `Freigabe: Rechnung ${r.invoiceNumber || '?'} von ${r.sellerName || '?'}`,\n    intro: 'Bitte Rechnung freigeben:',\n    seller: 'Lieferant', invoice: 'Rechnung', from: 'vom', due: 'fällig', amount: 'Betrag', notes: 'Hinweise',\n    payable: 'Zahlbetrag (weicht vom Rechnungsbetrag ab!)',\n  },\n  en: {\n    subject: (r) => `Approve invoice ${r.invoiceNumber || '?'} from ${r.sellerName || '?'}`,\n    intro: 'Please approve this invoice:',\n    seller: 'Supplier', invoice: 'Invoice', from: 'from', due: 'due', amount: 'Amount', notes: 'Notes',\n    payable: 'Amount to pay (differs from the invoice total!)',\n  },\n};\n\nfunction money(v, cur, lang) {\n  if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '—';\n  const s = Number(v).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n  return `${s} ${cur || ''}`.trim();\n}\n\nfunction spacedIban(s) {\n  return String(s || '').replace(/\\s+/g, '').toUpperCase().replace(/(.{4})/g, '$1 ').trim();\n}\n\n// r: a stored invoice row. Returns { subject, text } — plain text works in all three channels.\nfunction approvalRequest(r, lang = 'de') {\n  const t = T[lang] || T.de;\n  const lines = [\n    t.intro,\n    '',\n    `${t.seller}: ${r.sellerName || '?'}${r.sellerVatId ? ' (' + r.sellerVatId + ')' : ''}`,\n    `${t.invoice}: ${r.invoiceNumber || '?'} ${t.from} ${r.invoiceDate || '?'}${r.dueDate ? ', ' + t.due + ' ' + r.dueDate : ''}`,\n    `${t.amount}: ${money(r.grossAmount, r.currency, lang)}`,\n  ];\n  // The bank transfer uses the amount due — if it differs, the approver has to see it.\n  const due = Number(r.amountDue), gross = Number(r.grossAmount);\n  if (r.amountDue !== null && r.amountDue !== undefined && r.amountDue !== '' && !isNaN(due) && Math.abs(due - gross) > 0.005)\n    lines.push(`${t.payable}: ${money(due, r.currency, lang)}`);\n  if (r.iban) lines.push(`IBAN: ${spacedIban(r.iban)}`);\n  if (r.warnings) lines.push('', `${t.notes}:`, ...String(r.warnings).split('\\n').map(w => '• ' + w));\n  return { subject: t.subject(r), text: lines.join('\\n') };\n}\n\n// Output of a send-and-wait node: { data: { approved: true|false } }; nothing when the wait time ran out.\nfunction readDecision(json) {\n  const a = json && json.data && json.data.approved;\n  if (a === true) return 'approved';\n  if (a === false) return 'declined';\n  return 'no answer';\n}\n\n// One invoice per run of the loop: send-and-wait nodes only handle a single item.\nconst s = $('Settings').first().json;\nconst req = approvalRequest($json, s.invoiceViewLanguage || 'de');\nreturn { json: { ...$json, approvalSubject: req.subject, approvalText: req.text }, binary: $input.item.binary };",
+    "mode": "runOnceForEachItem"
+   },
+   "name": "Approval request",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    4080,
+    620
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c1",
+       "leftValue": "={{ $('Settings').first().json.approvalChannel === 'whatsapp' }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "name": "Approve by WhatsApp?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    4320,
+    620
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c1",
+       "leftValue": "={{ $('Settings').first().json.approvalChannel === 'telegram' }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "name": "Approve by Telegram?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    4560,
+    800
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "message",
+    "operation": "sendAndWait",
+    "phoneNumberId": "",
+    "recipientPhoneNumber": "={{ $('Settings').first().json.approverWhatsApp }}",
+    "message": "={{ $json.approvalText }}",
+    "approvalOptions": {
+     "values": {
+      "approvalType": "double",
+      "approveLabel": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Approve' : 'Freigeben' }}",
+      "disapproveLabel": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Decline' : 'Ablehnen' }}"
+     }
+    },
+    "options": {
+     "limitWaitTime": {
+      "values": {
+       "limitType": "afterTimeInterval",
+       "resumeAmount": "={{ $('Settings').first().json.approvalWaitHours || 48 }}",
+       "resumeUnit": "hours"
+      }
+     }
+    }
+   },
+   "name": "Ask on WhatsApp",
+   "type": "n8n-nodes-base.whatsApp",
+   "typeVersion": 1.1,
+   "position": [
+    4800,
+    500
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "message",
+    "operation": "sendAndWait",
+    "chatId": "={{ $('Settings').first().json.approverTelegramChatId }}",
+    "message": "={{ $json.approvalText }}",
+    "approvalOptions": {
+     "values": {
+      "approvalType": "double",
+      "approveLabel": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Approve' : 'Freigeben' }}",
+      "disapproveLabel": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Decline' : 'Ablehnen' }}"
+     }
+    },
+    "options": {
+     "limitWaitTime": {
+      "values": {
+       "limitType": "afterTimeInterval",
+       "resumeAmount": "={{ $('Settings').first().json.approvalWaitHours || 48 }}",
+       "resumeUnit": "hours"
+      }
+     }
+    }
+   },
+   "name": "Ask on Telegram",
+   "type": "n8n-nodes-base.telegram",
+   "typeVersion": 1.2,
+   "position": [
+    4800,
+    680
+   ]
+  },
+  {
+   "parameters": {
+    "operation": "sendAndWait",
+    "fromEmail": "={{ $('Settings').first().json.senderEmail }}",
+    "toEmail": "={{ $('Settings').first().json.approverEmail }}",
+    "subject": "={{ $json.approvalSubject }}",
+    "message": "={{ $json.approvalText }}",
+    "responseType": "approval",
+    "approvalOptions": {
+     "values": {
+      "approvalType": "double",
+      "approveLabel": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Approve' : 'Freigeben' }}",
+      "disapproveLabel": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Decline' : 'Ablehnen' }}"
+     }
+    },
+    "options": {
+     "limitWaitTime": {
+      "values": {
+       "limitType": "afterTimeInterval",
+       "resumeAmount": "={{ $('Settings').first().json.approvalWaitHours || 48 }}",
+       "resumeUnit": "hours"
+      }
+     }
+    }
+   },
+   "name": "Ask by email",
+   "type": "n8n-nodes-base.emailSend",
+   "typeVersion": 2.1,
+   "position": [
+    4800,
+    860
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Approval before payment: the request text (same content for e-mail, WhatsApp and Telegram)\n// and reading the answer of a \"Send and Wait for Response\" node.\n\nconst T = {\n  de: {\n    subject: (r) => `Freigabe: Rechnung ${r.invoiceNumber || '?'} von ${r.sellerName || '?'}`,\n    intro: 'Bitte Rechnung freigeben:',\n    seller: 'Lieferant', invoice: 'Rechnung', from: 'vom', due: 'fällig', amount: 'Betrag', notes: 'Hinweise',\n    payable: 'Zahlbetrag (weicht vom Rechnungsbetrag ab!)',\n  },\n  en: {\n    subject: (r) => `Approve invoice ${r.invoiceNumber || '?'} from ${r.sellerName || '?'}`,\n    intro: 'Please approve this invoice:',\n    seller: 'Supplier', invoice: 'Invoice', from: 'from', due: 'due', amount: 'Amount', notes: 'Notes',\n    payable: 'Amount to pay (differs from the invoice total!)',\n  },\n};\n\nfunction money(v, cur, lang) {\n  if (v === null || v === undefined || v === '' || isNaN(Number(v))) return '—';\n  const s = Number(v).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\n  return `${s} ${cur || ''}`.trim();\n}\n\nfunction spacedIban(s) {\n  return String(s || '').replace(/\\s+/g, '').toUpperCase().replace(/(.{4})/g, '$1 ').trim();\n}\n\n// r: a stored invoice row. Returns { subject, text } — plain text works in all three channels.\nfunction approvalRequest(r, lang = 'de') {\n  const t = T[lang] || T.de;\n  const lines = [\n    t.intro,\n    '',\n    `${t.seller}: ${r.sellerName || '?'}${r.sellerVatId ? ' (' + r.sellerVatId + ')' : ''}`,\n    `${t.invoice}: ${r.invoiceNumber || '?'} ${t.from} ${r.invoiceDate || '?'}${r.dueDate ? ', ' + t.due + ' ' + r.dueDate : ''}`,\n    `${t.amount}: ${money(r.grossAmount, r.currency, lang)}`,\n  ];\n  // The bank transfer uses the amount due — if it differs, the approver has to see it.\n  const due = Number(r.amountDue), gross = Number(r.grossAmount);\n  if (r.amountDue !== null && r.amountDue !== undefined && r.amountDue !== '' && !isNaN(due) && Math.abs(due - gross) > 0.005)\n    lines.push(`${t.payable}: ${money(due, r.currency, lang)}`);\n  if (r.iban) lines.push(`IBAN: ${spacedIban(r.iban)}`);\n  if (r.warnings) lines.push('', `${t.notes}:`, ...String(r.warnings).split('\\n').map(w => '• ' + w));\n  return { subject: t.subject(r), text: lines.join('\\n') };\n}\n\n// Output of a send-and-wait node: { data: { approved: true|false } }; nothing when the wait time ran out.\nfunction readDecision(json) {\n  const a = json && json.data && json.data.approved;\n  if (a === true) return 'approved';\n  if (a === false) return 'declined';\n  return 'no answer';\n}\n\n// approved / declined / no answer (wait time ran out — e.g. WhatsApp could not deliver outside the 24 h window)\nconst src = $('Approval request').item;\nreturn { json: { ...src.json, decision: readDecision($json), decidedAt: $now.toISO() }, binary: src.binary };",
+    "mode": "runOnceForEachItem"
+   },
+   "name": "Read decision",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    5040,
+    680
+   ]
+  },
+  {
+   "parameters": {
+    "resource": "row",
+    "operation": "update",
+    "dataTableId": {
+     "__rl": true,
+     "mode": "name",
+     "value": "e_invoices"
+    },
+    "filters": {
+     "conditions": [
+      {
+       "keyName": "dedupeKey",
+       "condition": "eq",
+       "keyValue": "={{ $json.dedupeKey }}"
+      }
+     ]
+    },
+    "columns": {
+     "mappingMode": "defineBelow",
+     "value": {
+      "approval": "={{ $json.decision }}",
+      "approvalAt": "={{ $json.decidedAt }}"
+     },
+     "matchingColumns": [],
+     "attemptToConvertTypes": false,
+     "convertFieldsToString": false,
+     "schema": [
+      {
+       "id": "approval",
+       "displayName": "approval",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true
+      },
+      {
+       "id": "approvalAt",
+       "displayName": "approvalAt",
+       "required": false,
+       "defaultMatch": false,
+       "display": true,
+       "type": "string",
+       "canBeUsedToMatch": true
+      }
+     ]
+    },
+    "options": {}
+   },
+   "name": "Record decision",
+   "type": "n8n-nodes-base.dataTable",
+   "typeVersion": 1.1,
+   "position": [
+    5280,
+    680
+   ],
+   "alwaysOutputData": true,
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
+  },
+  {
+   "parameters": {
+    "jsCode": "// The Data Table node returns only the row, so take the invoice with its files back.\nconst src = $('Read decision').item;\nreturn { json: src.json, binary: src.binary };",
+    "mode": "runOnceForEachItem"
+   },
+   "name": "Back to invoice",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    5520,
+    680
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c1",
+       "leftValue": "={{ $json.decision === 'approved' }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "name": "Approved?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    5760,
+    680
+   ]
+  },
+  {
+   "parameters": {
+    "conditions": {
+     "options": {
+      "caseSensitive": true,
+      "leftValue": "",
+      "typeValidation": "strict",
+      "version": 2
+     },
+     "conditions": [
+      {
+       "id": "c1",
+       "leftValue": "={{ !!$('Settings').first().json.accountingInbox && !!$json.forwardFile }}",
+       "rightValue": "",
+       "operator": {
+        "type": "boolean",
+        "operation": "true",
+        "singleValue": true
+       }
+      }
+     ],
+     "combinator": "and"
+    },
+    "options": {}
+   },
+   "name": "Forward approved?",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    6000,
+    580
+   ]
+  },
+  {
+   "parameters": {
+    "fromEmail": "={{ $('Settings').first().json.senderEmail }}",
+    "toEmail": "={{ $('Settings').first().json.accountingInbox }}",
+    "subject": "=Rechnung {{ $json.invoiceNumber }} {{ $json.sellerName }}",
+    "emailFormat": "text",
+    "text": "=E-Rechnung {{ $json.invoiceNumber }} vom {{ $json.invoiceDate }}, {{ $json.sellerName }}, {{ Number($json.amountDue ?? $json.grossAmount).toLocaleString('de-DE', { minimumFractionDigits: 2 }) }} {{ $json.currency }} — freigegeben {{ DateTime.fromISO($json.decidedAt).toFormat('dd.MM.yyyy HH:mm') }}",
+    "options": {
+     "fileAttachments": "={{ $json.forwardFile }}"
+    }
+   },
+   "name": "Send approved to bookkeeping",
+   "type": "n8n-nodes-base.emailSend",
+   "typeVersion": 2.1,
+   "position": [
+    6240,
+    500
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
+  },
+  {
+   "parameters": {
+    "fromEmail": "={{ $('Settings').first().json.senderEmail }}",
+    "toEmail": "={{ $('Settings').first().json.accountingEmail }}",
+    "subject": "={{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'Not approved: invoice' : 'Nicht freigegeben: Rechnung' }} {{ $json.invoiceNumber }} {{ $('Settings').first().json.invoiceViewLanguage === 'en' ? 'from' : 'von' }} {{ $json.sellerName }}",
+    "emailFormat": "html",
+    "html": "={{ (() => {\n  const j = $json;\n  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\n  const s = $('Settings').first().json, en = s.invoiceViewLanguage === 'en';\n  const why = en\n    ? (j.decision === 'declined' ? '<b>was declined</b> by the approver'\n      : '<b>got no answer</b> within ' + s.approvalWaitHours + ' hours (with WhatsApp: maybe not delivered outside the 24-hour window)')\n    : (j.decision === 'declined' ? 'wurde bei der Freigabe <b>abgelehnt</b>'\n      : 'hat innerhalb von ' + s.approvalWaitHours + ' Stunden <b>keine Antwort</b> bekommen (bei WhatsApp evtl. nicht zugestellt – außerhalb des 24-Stunden-Fensters)');\n  const tail = en ? 'It was <b>not</b> forwarded for payment.' : 'Sie wurde <b>nicht</b> zur Zahlung weitergeleitet.';\n  return `<p>${en ? 'Invoice' : 'Rechnung'} ${esc(j.invoiceNumber)} ${en ? 'from' : 'von'} ${esc(j.sellerName)} ${why}. ${tail}</p>\n<pre style=\"font-family:inherit\">${esc(j.approvalText)}</pre>`;\n})() }}",
+    "options": {}
+   },
+   "name": "Email: not approved",
+   "type": "n8n-nodes-base.emailSend",
+   "typeVersion": 2.1,
+   "position": [
+    6000,
+    820
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
+  },
+  {
+   "parameters": {
+    "content": "### When something fails\nEmail and Data Table steps retry 3× (5 s apart). If a step still fails, **On workflow error** sends accounting a mail with the step, the error and a link to the execution — because IMAP has already marked those mails as read, nothing would show up otherwise.\n\n**One-time setup:** activate the workflow first (n8n only offers published workflows), then open *Workflow settings* → **Error workflow** → select **this** workflow, and set `accountingEmail` + `senderEmail` in *Failure settings*. (If SMTP itself is down, n8n's execution list still shows the failure.)",
+    "width": 760,
+    "height": 260,
+    "color": 2
+   },
+   "name": "Failure note",
+   "type": "n8n-nodes-base.stickyNote",
+   "typeVersion": 1,
+   "position": [
+    -60,
+    1220
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "On workflow error",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    0,
+    1520
+   ]
+  },
+  {
+   "parameters": {
+    "assignments": {
+     "assignments": [
+      {
+       "id": "f1",
+       "name": "accountingEmail",
+       "type": "string",
+       "value": "accounting@example.com"
+      },
+      {
+       "id": "f2",
+       "name": "senderEmail",
+       "type": "string",
+       "value": "invoices@example.com"
+      },
+      {
+       "id": "f3",
+       "name": "timezone",
+       "type": "string",
+       "value": "Europe/Berlin"
+      },
+      {
+       "id": "f4",
+       "name": "language",
+       "type": "string",
+       "value": "de"
+      }
+     ]
+    },
+    "includeOtherFields": true,
+    "options": {}
+   },
+   "name": "Failure settings",
+   "type": "n8n-nodes-base.set",
+   "typeVersion": 3.4,
+   "position": [
+    240,
+    1520
+   ]
+  },
+  {
+   "parameters": {
+    "jsCode": "// Runs when any step of this workflow fails for good (after the retries). Mails fetched by IMAP are\n// already marked as read at that point — so say exactly which time window someone has to look at.\nconst ex = $json.execution || {}, tr = $json.trigger || {};\nconst err = ex.error || tr.error || {};\nconst step = ex.lastNodeExecuted || (err.node && err.node.name) || 'trigger';\nconst at = $now.setZone($('Failure settings').first().json.timezone || 'Europe/Berlin').toFormat('dd.MM.yyyy HH:mm');\nconst esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);\nconst msg = esc(err.message || '?') + (err.description ? '<br>' + esc(err.description) : '');\nconst de = ($('Failure settings').first().json.language || 'de') !== 'en';\nreturn [{ json: de ? {\n  subject: `E-Rechnung-Workflow abgebrochen bei „${step}“`,\n  html: `<p><b>Der E-Rechnung-Workflow ist bei „${esc(step)}“ abgebrochen</b> (${esc(at)}).</p>\n<p>Fehler: ${msg}</p>\n<p>Rechnungen aus diesem Lauf wurden eventuell nicht geprüft, gespeichert oder weitergeleitet. Mails, die kurz vor ${esc(at)}\neingegangen sind, sind im Rechnungspostfach schon als <b>gelesen</b> markiert – bitte ansehen oder die Dateien über das Formular\nhochladen (bereits gespeicherte Rechnungen werden als Dubletten erkannt).</p>\n${ex.url ? '<p><a href=\"' + esc(ex.url) + '\">Fehlgeschlagene Ausführung in n8n öffnen</a></p>' : ''}`,\n} : {\n  subject: `E-invoice workflow failed at \"${step}\"`,\n  html: `<p><b>The e-invoice workflow stopped at \"${esc(step)}\"</b> (${esc(at)}).</p>\n<p>Error: ${msg}</p>\n<p>Invoices in this run may not have been checked, stored or forwarded. Mails that arrived shortly before ${esc(at)}\nare already marked as <b>read</b> in the invoice inbox — please look at them, or upload the files with the form\n(invoices that were already stored are recognised as duplicates).</p>\n${ex.url ? '<p><a href=\"' + esc(ex.url) + '\">Open the failed execution in n8n</a></p>' : ''}`,\n} }];"
+   },
+   "name": "Describe failure",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    480,
+    1520
+   ]
+  },
+  {
+   "parameters": {
+    "fromEmail": "={{ $('Failure settings').first().json.senderEmail }}",
+    "toEmail": "={{ $('Failure settings').first().json.accountingEmail }}",
+    "subject": "={{ $json.subject }}",
+    "emailFormat": "html",
+    "html": "={{ $json.html }}",
+    "options": {}
+   },
+   "name": "Email: workflow failed",
+   "type": "n8n-nodes-base.emailSend",
+   "typeVersion": 2.1,
+   "position": [
+    720,
+    1520
+   ],
+   "retryOnFail": true,
+   "maxTries": 3,
+   "waitBetweenTries": 5000
   }
  ],
  "connections": {
@@ -850,7 +1615,25 @@
    "main": [
     [
      {
+      "node": "Has invoice file?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Has invoice file?": {
+   "main": [
+    [
+     {
       "node": "Find e-invoice XML",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Email: no invoice file",
       "type": "main",
       "index": 0
      }
@@ -890,7 +1673,43 @@
    "main": [
     [
      {
+      "node": "Has text layer?",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Could not read PDF",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Has text layer?": {
+   "main": [
+    [
+     {
       "node": "Read invoice with AI",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Could not read PDF",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Could not read PDF": {
+   "main": [
+    [
+     {
+      "node": "Parse & check",
       "type": "main",
       "index": 0
      }
@@ -913,6 +1732,13 @@
     [
      {
       "node": "Prepare AI result",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Could not read PDF",
       "type": "main",
       "index": 0
      }
@@ -983,6 +1809,28 @@
    "main": [
     [
      {
+      "node": "Read invoice history",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read invoice history": {
+   "main": [
+    [
+     {
+      "node": "Check supplier",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Check supplier": {
+   "main": [
+    [
+     {
       "node": "Save invoice",
       "type": "main",
       "index": 0
@@ -1023,7 +1871,208 @@
     ],
     [
      {
+      "node": "Needs approval?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Needs approval?": {
+   "main": [
+    [
+     {
+      "node": "One invoice at a time",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
       "node": "Forward to bookkeeping?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "One invoice at a time": {
+   "main": [
+    [],
+    [
+     {
+      "node": "Approval request",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approval request": {
+   "main": [
+    [
+     {
+      "node": "Approve by WhatsApp?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approve by WhatsApp?": {
+   "main": [
+    [
+     {
+      "node": "Ask on WhatsApp",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Approve by Telegram?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approve by Telegram?": {
+   "main": [
+    [
+     {
+      "node": "Ask on Telegram",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Ask by email",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Ask on WhatsApp": {
+   "main": [
+    [
+     {
+      "node": "Read decision",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Ask on Telegram": {
+   "main": [
+    [
+     {
+      "node": "Read decision",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Ask by email": {
+   "main": [
+    [
+     {
+      "node": "Read decision",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Read decision": {
+   "main": [
+    [
+     {
+      "node": "Record decision",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Record decision": {
+   "main": [
+    [
+     {
+      "node": "Back to invoice",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Back to invoice": {
+   "main": [
+    [
+     {
+      "node": "Approved?",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Approved?": {
+   "main": [
+    [
+     {
+      "node": "Forward approved?",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Email: not approved",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Forward approved?": {
+   "main": [
+    [
+     {
+      "node": "Send approved to bookkeeping",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "One invoice at a time",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send approved to bookkeeping": {
+   "main": [
+    [
+     {
+      "node": "One invoice at a time",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Email: not approved": {
+   "main": [
+    [
+     {
+      "node": "One invoice at a time",
       "type": "main",
       "index": 0
      }
@@ -1091,6 +2140,39 @@
     [
      {
       "node": "Create e_invoices table",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "On workflow error": {
+   "main": [
+    [
+     {
+      "node": "Failure settings",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Failure settings": {
+   "main": [
+    [
+     {
+      "node": "Describe failure",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Describe failure": {
+   "main": [
+    [
+     {
+      "node": "Email: workflow failed",
       "type": "main",
       "index": 0
      }

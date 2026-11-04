@@ -6,7 +6,7 @@ Open n8n workflows for European e-invoices (EN 16931). No external API, no OCR s
 
 | Workflow | Status |
 |---|---|
-| [Process incoming e-invoices](incoming/) — read, check, deduplicate, forward to bookkeeping | available |
+| [Process incoming e-invoices](incoming/) — read, check, catch changed bank details, approve by e-mail / WhatsApp / Telegram, forward to bookkeeping | available |
 | [Create and send XRechnung](outgoing/) — from a form or JSON, validated with the official KoSIT validator | available |
 | [Ask your invoices](ask/) — chat with the invoice archive in German or English, local AI model, numbers computed by code | available |
 
@@ -14,32 +14,42 @@ Open n8n workflows for European e-invoices (EN 16931). No external API, no OCR s
 
 Since January 2025 every business in Germany has to be able to **receive** e-invoices; from 2027/2028 B2B e-invoicing becomes mandatory. France, Belgium and others use the same EN 16931 standard. In practice that means two annoying things: an XRechnung is an XML file nobody can read, and a ZUGFeRD / Factur-X PDF hides the actual data in an attachment.
 
+The workflow is built for the day-to-day of a small business: nothing gets paid that a person has not seen, and nothing disappears quietly.
+
 **What the workflow does**
 
-1. Takes PDF and XML attachments from an IMAP mailbox or an upload form.
+1. Takes invoices from an IMAP mailbox or an upload form. PDF and XML are recognised by content (also without a file extension), **ZIP archives are unpacked**. A mail without any invoice file — usually a link to a supplier portal — is reported to accounting with the links found in it.
 2. Extracts the embedded XML from ZUGFeRD / Factur-X PDFs (PDF/A-3, decompressed in pure JS — works on n8n Cloud too).
 3. Reads CII (ZUGFeRD 2.x, Factur-X, XRechnung CII), ZUGFeRD 1.0 and UBL (XRechnung UBL, Peppol) into one structure.
-4. Checks plausibility: sum of lines, net + VAT = gross, VAT per rate, VAT breakdown, amount due, IBAN checksum, VAT ID format, mandatory fields, overdue date, credit notes.
-5. Plain PDFs without XML go to a **local AI model (Ollama)** — or any chat model you allow — and are always marked for review.
-6. Detects duplicates (seller + invoice number) and stores every invoice in an n8n Data Table.
-7. Emails accounting only when something needs attention — with a **readable PDF** of every XRechnung attached.
-8. Optionally forwards clean invoices to your bookkeeping inbox. DATEV Upload Mail does not accept XML, so XRechnungen are sent as the readable PDF.
-9. Exports last month's invoices as CSV for your tax advisor (semicolon, decimal comma).
+4. Checks plausibility: line sums, net + VAT = gross, VAT per rate and category, amount due vs. gross, negative or implausible amounts, IBAN checksum, VAT ID format, mandatory fields, due date, credit notes.
+5. Plain PDFs without XML go to a **local AI model (Ollama)** — or any chat model you allow — and are always marked for review. Scans without a text layer, broken PDFs and an unreachable model go straight to a person.
+6. Detects duplicates (seller + invoice number, or the identical file — also inside one mail, e.g. XML and PDF of the same invoice) and stores every invoice in an n8n Data Table.
+7. **Supplier check against earlier invoices:** an IBAN this supplier never used before stops the invoice — changed bank details are the classic invoice fraud. A different sender domain, a different VAT ID under the same name and the first invoice of a new supplier are noted.
+8. **Approval before payment** by e-mail, **WhatsApp** or Telegram with *Freigeben / Ablehnen* buttons, from an amount you choose (invoices in another currency always ask). No answer within the wait time → accounting is told; nothing waits forever.
+9. Approved invoices go to your bookkeeping inbox (DATEV Upload Mail, Lexware Office, …) as the readable PDF; everything that needs a look goes to accounting with the original and a readable PDF.
+10. If a step fails for good (after 3 retries), an **error mail** names the step and the time window — IMAP has already marked those mails as read, so otherwise nobody would notice.
+11. Exports last month's invoices as CSV for your tax advisor (semicolon, decimal comma).
 
-**Tested** against the official [ZUGFeRD / Factur-X corpus](https://github.com/ZUGFeRD/corpus) and the [KoSIT XRechnung test suite](https://github.com/itplr-kosit/xrechnung-testsuite) — 222 files, no parser errors, all 72 KoSIT invoices accepted — and end-to-end on n8n 2.43 (IMAP trigger, Data Table, AI fallback).
+All texts — problems, mails, the approval request — are in German or English (`invoiceViewLanguage`).
 
-**Limits, honestly:** this is a plausibility check, not a full Schematron validation. Scanned PDFs without a text layer need OCR in front. The readable PDF is a view; the XML stays the legal original — keep it archived (GoBD).
+**Tested** against the official [ZUGFeRD / Factur-X corpus](https://github.com/ZUGFeRD/corpus) and the [KoSIT XRechnung test suite](https://github.com/itplr-kosit/xrechnung-testsuite) — 330 files, all 284 invoices read without parser errors — and end-to-end on n8n 2.43 with the failure cases that matter in real life: changed IBAN, fake invoice without VAT ID, ZIP, portal link, scan, model down, same file name from two suppliers, XML + PDF of one invoice, non-invoice XML, duplicate, approved / declined / no answer, amount threshold, a broken table step. The code was additionally reviewed by a second AI model; its findings and what was fixed are listed in the repository history.
+
+**Limits, honestly:** this is a plausibility check, not a full Schematron validation. Scanned PDFs need OCR in front. The readable PDF is a view; the XML stays the legal original — keep it archived (GoBD). WhatsApp only delivers a free-text approval request if the approver wrote to your business number within the last 24 hours (Meta rule) — otherwise the request runs into the wait time and accounting is told.
 
 **DATEV Upload Mail, where forwarding usually breaks:** it takes PDF and TIF only, up to 20 MB and 10 documents per mail, and only from a sender address you have confirmed in DATEV. A forwarding rule in your mail client often keeps the original sender and gets rejected. That is why the workflow sends each invoice as its own mail from the *sender* in **Settings** — put your confirmed DATEV address there. If you switch to the Gmail or Outlook node, send from that same address. (Thanks to Anton Brinckmann for the hint in the [n8n community](https://community.n8n.io/t/reading-xrechnung-and-zugferd-invoices-in-n8n-without-any-external-api-open-workflow/326217).)
 
-**Set up** (about 10 minutes)
+**Set up** (about 15 minutes)
 
 1. Import `incoming/process-incoming-e-invoices.json` into n8n (2.x; Data Tables required).
 2. Run *Run once: create table* — it creates the `e_invoices` Data Table.
 3. Add IMAP and SMTP credentials. Some hosts block outgoing SMTP (e.g. DigitalOcean) — then use the Gmail or Outlook node instead.
-4. Fill in **Settings**: accounting address, sender, optional bookkeeping inbox, PDF language (`de` / `en`).
+4. Fill in **Settings**: accounting address, sender, optional bookkeeping inbox, language (`de` / `en`), approval channel (`email`, `whatsapp`, `telegram` or `none`), approver, amount and wait time. For WhatsApp or Telegram, add those credentials to *Ask on WhatsApp* / *Ask on Telegram*.
 5. Optional: point *Local AI model* to your Ollama server, or delete the AI section.
-6. Test with the upload form, then activate.
+6. Test with the upload form, then **activate** — and only then open *Workflow settings → Error workflow* and select this same workflow (n8n only offers workflows that are already published). Set the addresses in *Failure settings*.
+
+To accept a supplier's new bank account after you confirmed it by phone, set `ibanConfirmed` to `yes` on that row in the Data Table.
+
+**Upgrading from the first version:** the table has new columns (`fileHash`, `previousIban`, `ibanConfirmed`, `approval`, `approvalAt`) — add them to `e_invoices` or create the table again.
 
 The logic of the Code nodes is also in `incoming/js/` as plain files, if you want to read or test it outside n8n.
 
@@ -80,6 +90,10 @@ Der Workflow holt die Rechnungen aus dem Postfach oder über ein Upload-Formular
 An die Buchhaltung geht nur, was wirklich hingeschaut werden muss, und zwar mit einer lesbaren PDF-Ansicht jeder XRechnung. Saubere Rechnungen lassen sich automatisch an DATEV Upload Mail oder Lexware Office weiterleiten (DATEV nimmt dort kein XML an, deshalb die PDF-Ansicht). Jede Rechnung geht als eigene Mail vom Absender aus den Settings raus – das muss die in DATEV bestätigte Adresse sein, sonst lehnt Upload Mail ab. Einmal im Monat gibt es eine CSV für die Steuerberatung.
 
 PDFs ohne E-Rechnungsdaten liest auf Wunsch ein lokales Sprachmodell über Ollama – gekennzeichnet zur Prüfung, nie stillschweigend übernommen.
+
+Neu ist der Teil, der im Alltag am meisten Geld spart. Der Workflow vergleicht jede Rechnung mit den früheren desselben Lieferanten: Taucht eine IBAN auf, die dieser Lieferant noch nie benutzt hat, wird nichts bezahlt, bevor jemand beim Lieferanten angerufen hat – unter einer Nummer, die man schon kennt, nicht unter der aus der Mail. Auch eine gefälschte Rechnung, die einfach die USt-IdNr. weglässt, fällt so auf. Danach kommt die Freigabe per E-Mail, WhatsApp oder Telegram, mit zwei Knöpfen, ab einem Betrag, den Sie festlegen. Kommt keine Antwort, erfährt es die Buchhaltung.
+
+Und es geht nichts mehr leise verloren: ZIP-Archive werden entpackt, Mails mit einem Portal-Link statt Anhang landen bei einem Menschen, Scans auch, und wenn ein Schritt endgültig scheitert, sagt eine Mail, welcher und ab wann – denn das Postfach hat die Mails da schon als gelesen markiert.
 
 Eine vollständige Schematron-Validierung ersetzt das nicht, und die XML-Datei bleibt das maßgebliche Original.
 
